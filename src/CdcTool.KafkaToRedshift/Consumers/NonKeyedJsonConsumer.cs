@@ -28,7 +28,7 @@ namespace CdcTools.KafkaToRedshift.Consumers
             _redshiftTasks = new List<Task>();
         }
 
-        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSize, List<KafkaSource> kafkaSources)
+        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
         {
             await _redshiftWriter.CacheTableColumnsAsync(kafkaSources.Select(x => x.Table).ToList());
 
@@ -51,7 +51,7 @@ namespace CdcTools.KafkaToRedshift.Consumers
                 {
                     try
                     {
-                        await _redshiftWriter.StartWritingAsync(token, windowSize, kafkaSource.Table, accumulatedChanges);
+                        await _redshiftWriter.StartWritingAsync(token, windowSizePeriod, windowSizeItems, kafkaSource.Table, accumulatedChanges);
                     }
                     catch (Exception ex)
                     {
@@ -67,7 +67,7 @@ namespace CdcTools.KafkaToRedshift.Consumers
             Task.WaitAll(_redshiftTasks.ToArray());
         }
 
-        private void Consume(CancellationToken token, BlockingCollection<MessageProxy<RowChange>> acuumulatedChanges, string topic, string table)
+        private void Consume(CancellationToken token, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges, string topic, string table)
         {
             var conf = new Dictionary<string, object>
             {
@@ -77,32 +77,26 @@ namespace CdcTools.KafkaToRedshift.Consumers
 
             using (var consumer = new Consumer<Null, string>(conf, null, new StringDeserializer(Encoding.UTF8)))
             {
-                consumer.OnMessage += (_, msg) => AddToBuffer(consumer, msg, acuumulatedChanges);
-
-                consumer.OnError += (_, error)
-                  => Console.WriteLine($"Error: {error}");
-
-                consumer.OnConsumeError += (_, msg)
-                  => Console.WriteLine($"Consume error ({msg.TopicPartitionOffset}): {msg.Error}");
-
                 consumer.Subscribe(topic);
 
                 while (!token.IsCancellationRequested)
                 {
-                    consumer.Poll(TimeSpan.FromMilliseconds(100));
+                    Message<Null, string> msg = null;
+                    if (consumer.Consume(out msg, TimeSpan.FromSeconds(1)))
+                        AddToBuffer(consumer, msg, accumulatedChanges);
                 }
             }
 
-            acuumulatedChanges.CompleteAdding(); // notifies consumers that no more messages will come
+            accumulatedChanges.CompleteAdding(); // notifies consumers that no more messages will come
         }
 
-        private void AddToBuffer(Consumer<Null, string> consumer, Message<Null, string> jsonMessage, BlockingCollection<MessageProxy<RowChange>> acuumulatedChanges)
+        private void AddToBuffer(Consumer<Null, string> consumer, Message<Null, string> jsonMessage, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges)
         {
             var msg = new MessageProxy<RowChange>(consumer, jsonMessage)
             {
                 Payload = JsonConvert.DeserializeObject<RowChange>(jsonMessage.Value)
             };
-            acuumulatedChanges.Add(msg);
+            accumulatedChanges.Add(msg);
         }
     }
 }

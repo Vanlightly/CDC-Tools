@@ -25,12 +25,12 @@ namespace CdcTools.KafkaToRedshift.Redshift
             await _redshiftClient.CacheTableColumnsAsync(tables);
         }
 
-        public async Task StartWritingAsync(CancellationToken token, TimeSpan windowSize, string table, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges)
+        public async Task StartWritingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, string table, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges)
         {
-            await WriteToRedshiftAsync(token, windowSize, table, accumulatedChanges);
+            await WriteToRedshiftAsync(token, windowSizePeriod, windowSizeItems, table, accumulatedChanges);
         }
 
-        private async Task WriteToRedshiftAsync(CancellationToken token, TimeSpan windowSize, string tableName, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges)
+        private async Task WriteToRedshiftAsync(CancellationToken token, TimeSpan windowSize, int windowSizeItems, string tableName, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges)
         {
             tableName = tableName.ToLower();
 
@@ -49,7 +49,16 @@ namespace CdcTools.KafkaToRedshift.Redshift
                     await messages.Last().CommitAsync();
                 }
 
-                await Task.Delay(windowSize);
+                // wait for interval but check buffered item count regularly and if max size is reached then upload
+                int secondsWaited = 0;
+                while(secondsWaited < (int)windowSize.TotalSeconds)
+                {
+                    if (accumulatedChanges.Count >= windowSizeItems)
+                        break;
+
+                    secondsWaited++;
+                    await Task.Delay(1000);
+                }
             }
         }
 

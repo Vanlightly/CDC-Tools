@@ -3,7 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Loader;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace CdcTools.CdcToKafka.Streaming
 {
@@ -13,6 +15,19 @@ namespace CdcTools.CdcToKafka.Streaming
         {
             Console.Title = "CDC To Kafka Streamer";
 
+            // support graceful shutdown in Docker
+            var ended = new ManualResetEventSlim();
+            var starting = new ManualResetEventSlim();
+
+            AssemblyLoadContext.Default.Unloading += ctx =>
+            {
+                System.Console.WriteLine("Unloading fired");
+                starting.Set();
+                System.Console.WriteLine("Waiting for completion");
+                ended.Wait();
+            };
+
+            // set up configuration
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
@@ -20,6 +35,7 @@ namespace CdcTools.CdcToKafka.Streaming
 
             IConfigurationRoot configuration = builder.Build();
 
+            // get parameters and start
             var isFullLoad = IsFullLoad(args, configuration);
             var tables = GetTables(args, configuration);
             var interval = GetInterval(args, configuration);
@@ -33,10 +49,24 @@ namespace CdcTools.CdcToKafka.Streaming
             {
                 var fullLoadStreamer = new FullLoadStreamer(configuration);
                 fullLoadStreamer.StreamTablesAsync(cts.Token, tables, serializationMode, sendWithKey, batchSize, printMod).Wait();
-                Console.WriteLine("Streaming to Kafka in progress. Press any key to shutdown");
-                Console.ReadKey();
+                Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
+
+                // wait for shutdown signal
+                bool shutdown = false;
+                while (!shutdown)
+                {
+                    if (starting.IsSet)
+                        shutdown = true;
+                    else if (Console.ReadKey(true).Key == ConsoleKey.X)
+                        shutdown = true;
+                    else
+                        Task.Delay(1000);
+                }
+
+                Console.WriteLine("Received signal gracefully shutting down");
                 cts.Cancel();
                 fullLoadStreamer.WaitForCompletion();
+                ended.Set();
             }
             else
             {
@@ -50,11 +80,24 @@ namespace CdcTools.CdcToKafka.Streaming
                 };
                 var cdcStreamer = new ChangeStreamer(configuration);
                 cdcStreamer.StartReading(cts.Token, cdcRequest);
+                Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
 
-                Console.WriteLine("Streaming to Kafka in progress. Press any key to shutdown");
-                Console.ReadKey();
+                // wait for shutdown signal
+                bool shutdown = false;
+                while (!shutdown)
+                {
+                    if (starting.IsSet)
+                        shutdown = true;
+                    else if (Console.ReadKey(true).Key == ConsoleKey.X)
+                        shutdown = true;
+                    else
+                        Task.Delay(1000);
+                }
+
+                Console.WriteLine("Received signal gracefully shutting down");
                 cts.Cancel();
                 cdcStreamer.WaitForCompletion();
+                ended.Set();
             }
         }
 

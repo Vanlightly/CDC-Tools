@@ -16,8 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="..\CdcTools.CdcReader\CdcTools.CdcReader.csproj" />
     <ProjectReference Include="..\CdcTools.SqlToAvro\CdcTools.SqlToAvro.csproj" />
-    <ProjectReference Include="..\src\CdcTools.CdcReader\CdcTools.CdcReader.csproj" />
-    <ProjectReference Include="..\src\CdcTools.SqlToAvro\CdcTools.SqlToAvro.csproj" />
   </ItemGroup>
 
 </Project>

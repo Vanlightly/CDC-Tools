@@ -30,13 +30,13 @@ namespace CdcTools.KafkaToRedshift.Consumers
             _redshiftTasks = new List<Task>();
         }
 
-        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSize, List<KafkaSource> kafkaSources)
+        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
         {
             await _redshiftWriter.CacheTableColumnsAsync(kafkaSources.Select(x => x.Table).ToList());
 
             foreach (var kafkaSource in kafkaSources)
             {
-                var accumulatedChanges = new BlockingCollection<MessageProxy<RowChange>>();
+                var accumulatedChanges = new BlockingCollection<MessageProxy<RowChange>>(5000);
                 _consumerTasks.Add(Task.Run(() =>
                 {
                     try
@@ -53,7 +53,7 @@ namespace CdcTools.KafkaToRedshift.Consumers
                 {
                     try
                     {
-                        await _redshiftWriter.StartWritingAsync(token, windowSize, kafkaSource.Table, accumulatedChanges);
+                        await _redshiftWriter.StartWritingAsync(token, windowSizePeriod, windowSizeItems, kafkaSource.Table, accumulatedChanges);
                     }
                     catch (Exception ex)
                     {
@@ -82,27 +82,20 @@ namespace CdcTools.KafkaToRedshift.Consumers
 
             using (var consumer = new Consumer<Null, GenericRecord>(conf, null, new AvroDeserializer<GenericRecord>()))
             {
-                consumer.OnMessage += (_, msg) =>
-                {
-                    if (avroTableTypeConverter == null)
-                        avroTableTypeConverter = new AvroTableTypeConverter(msg.Value.Schema);
-                    else if (!avroTableTypeConverter.SchemaMatches(msg.Value.Schema))
-                        avroTableTypeConverter = new AvroTableTypeConverter(msg.Value.Schema);
-
-                    AddToBuffer(consumer, msg, accumulatedChanges, avroTableTypeConverter);
-                };
-
-                consumer.OnError += (_, error)
-                  => Console.WriteLine($"Error: {error}");
-
-                consumer.OnConsumeError += (_, msg)
-                  => Console.WriteLine($"Consume error ({msg.TopicPartitionOffset}): {msg.Error}");
-
                 consumer.Subscribe(topic);
 
                 while (!token.IsCancellationRequested)
                 {
-                    consumer.Poll(TimeSpan.FromMilliseconds(100));
+                    Message<Null, GenericRecord> msg = null;
+                    if (consumer.Consume(out msg, TimeSpan.FromSeconds(1)))
+                    {
+                        if (avroTableTypeConverter == null)
+                            avroTableTypeConverter = new AvroTableTypeConverter(msg.Value.Schema);
+                        else if (!avroTableTypeConverter.SchemaMatches(msg.Value.Schema))
+                            avroTableTypeConverter = new AvroTableTypeConverter(msg.Value.Schema);
+
+                        AddToBuffer(consumer, msg, accumulatedChanges, avroTableTypeConverter);
+                    }
                 }
             }
 

@@ -6,7 +6,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.Loader;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace CdcTools.KafkaToRedshift
 {
@@ -16,6 +18,17 @@ namespace CdcTools.KafkaToRedshift
         {
             Console.Title = "Kafka to Redshift Writer";
 
+            var ended = new ManualResetEventSlim();
+            var starting = new ManualResetEventSlim();
+
+            AssemblyLoadContext.Default.Unloading += ctx =>
+            {
+                System.Console.WriteLine("Unloading fired");
+                starting.Set();
+                System.Console.WriteLine("Waiting for completion");
+                ended.Wait();
+            };
+
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
@@ -24,7 +37,8 @@ namespace CdcTools.KafkaToRedshift
             IConfigurationRoot configuration = builder.Build();
 
             var tables = GetTables(args, configuration);
-            var interval = GetInterval(args, configuration);
+            var windowSizePeriod = GetWindowSizeTimePeriod(args, configuration);
+            var windowSizeItems = GetWindowSizeItemCount(args, configuration);
             var serializationMode = GetSerializationMode(args, configuration);
             var messagesHaveKey = MessagesHaveKey(args, configuration);
 
@@ -37,12 +51,25 @@ namespace CdcTools.KafkaToRedshift
             var cts = new CancellationTokenSource();
 
             IConsumer consumer = GetConsumer(serializationMode, messagesHaveKey, configuration);
-            consumer.StartConsumingAsync(cts.Token, interval, kafkaSources).Wait();
-            Console.WriteLine($"Consuming messages of tables {string.Join(',', tables)} in {serializationMode.ToString()} deserialization mode with {interval} window sizes");
-            Console.WriteLine("Press any key to shutdoown");
-            Console.ReadKey();
+            consumer.StartConsumingAsync(cts.Token, windowSizePeriod, windowSizeItems, kafkaSources).Wait();
+            Console.WriteLine($"Consuming messages of tables {string.Join(',', tables)} in {serializationMode.ToString()} deserialization mode with {windowSizePeriod} window sizes");
+            Console.WriteLine("Press X to shutdown");
+
+            bool shutdown = false;
+            while (!shutdown)
+            {
+                if (starting.IsSet)
+                    shutdown = true;
+                else if (Console.ReadKey(true).Key == ConsoleKey.X)
+                    shutdown = true;
+                else
+                    Task.Delay(1000);
+            }
+
+            Console.WriteLine("Received signal gracefully shutting down");
             cts.Cancel();
             consumer.WaitForCompletion();
+            ended.Set();
         }
 
         private static List<string> GetTables(string[] args, IConfiguration configuration)
@@ -65,18 +92,31 @@ namespace CdcTools.KafkaToRedshift
             }
         }
 
-        private static TimeSpan GetInterval(string[] args, IConfiguration configuration)
+        private static TimeSpan GetWindowSizeTimePeriod(string[] args, IConfiguration configuration)
         {
             for (int i = 0; i < args.Length; i++)
             {
-                if (args[i].Equals("--interval") || args[i].Equals("-i"))
+                if (args[i].Equals("--window-ms") || args[i].Equals("-wm"))
                 {
                     return TimeSpan.FromMilliseconds(int.Parse(args[i + 1]));
                 }
             }
 
+            return TimeSpan.FromMilliseconds(int.Parse(configuration["WindowMs"]));
+        }
 
-            return TimeSpan.FromMilliseconds(int.Parse(configuration["intervalMs"]));
+        private static int GetWindowSizeItemCount(string[] args, IConfiguration configuration)
+        {
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i].Equals("--window-items") || args[i].Equals("-wi"))
+                {
+                    return int.Parse(args[i + 1]);
+                }
+            }
+
+
+            return int.Parse(configuration["WindowItems"]);
         }
 
         private static SerializationMode GetSerializationMode(string[] args, IConfiguration configuration)
