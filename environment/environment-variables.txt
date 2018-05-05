@@ -1,0 +1,8 @@
+The following environment variables are required:
+CDCTOOLS_AccessKey
+CDCTOOLS_SecretAccessKey
+CDCTOOLS_RedshiftUser
+CDCTOOLS_RedshiftPassword
+CDCTOOLS_RedshiftRole
+
+These are not stored in the repo.
