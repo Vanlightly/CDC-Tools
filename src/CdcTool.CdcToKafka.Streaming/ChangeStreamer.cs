@@ -16,13 +16,17 @@ namespace CdcTools.CdcToKafka.Streaming
     public class ChangeStreamer
     {
         private string _tableTopicPrefix;
+        private string _kafkaBootstrapServers;
+        private string _schemaRegistryUrl;
         private CdcReaderClient _cdcReaderClient;
         private List<Task> _readerTasks;
 
         public ChangeStreamer(IConfiguration configuration)
         {
-            _cdcReaderClient = new CdcReaderClient(configuration["database-connection"]);
-            _tableTopicPrefix = configuration["tableTopicPrefix"];
+            _cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"]);
+            _tableTopicPrefix = configuration["TableTopicPrefix"];
+            _kafkaBootstrapServers = configuration["KafkaBootstrapServers"];
+            _schemaRegistryUrl = configuration["KafkaSchemaRegistryUrl"];
 
             _readerTasks = new List<Task>();
         }
@@ -73,10 +77,22 @@ namespace CdcTools.CdcToKafka.Streaming
             var initialFromLsn = await _cdcReaderClient.GetMinValidLsnAsync(tableName);
             var initialToLsn = await _cdcReaderClient.GetMaxLsnAsync();
             
-            using (var producer = ProducerFactory.GetProducer(tableTopic, tableSchema, serializationMode, sendWithKey))
+            using (var producer = ProducerFactory.GetProducer(tableTopic, tableSchema, serializationMode, sendWithKey, _kafkaBootstrapServers, _schemaRegistryUrl))
             {
-                var syncBatch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, initialFromLsn, initialToLsn, 1);
-                var firstChange = syncBatch.Changes.First();
+                var hasFirstChange = false;
+                ChangeBatch syncBatch = null;
+                ChangeRecord firstChange = null;
+                while (!hasFirstChange && !token.IsCancellationRequested)
+                {
+                    syncBatch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, initialFromLsn, initialToLsn, 1);
+                    if (syncBatch.Changes.Any())
+                    {
+                        firstChange = syncBatch.Changes.First();
+                        hasFirstChange = true;
+                    }
+                    else
+                        await Task.Delay(maxInterval);
+                }
 
                 await producer.SendAsync(token, firstChange);
 

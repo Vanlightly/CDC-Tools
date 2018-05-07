@@ -18,17 +18,21 @@ namespace CdcTools.KafkaToRedshift.Consumers
         private IRedshiftWriter _redshiftWriter;
         private List<Task> _consumerTasks;
         private List<Task> _redshiftTasks;
+        private string _kafkaBootstrapServers;
 
-        public KeyedJsonConsumer(IRedshiftWriter redshiftClient)
+        public KeyedJsonConsumer(IRedshiftWriter redshiftClient, string kafkaBootstrapServers)
         {
             _redshiftWriter = redshiftClient;
             _consumerTasks = new List<Task>();
             _redshiftTasks = new List<Task>();
+            _kafkaBootstrapServers = kafkaBootstrapServers;
         }
 
-        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
+        public async Task<bool> StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
         {
-            await _redshiftWriter.CacheTableColumnsAsync(kafkaSources.Select(x => x.Table).ToList());
+            var columnsLoaded = await CacheRedshiftColumns(kafkaSources.Select(x => x.Table).ToList());
+            if (!columnsLoaded)
+                return columnsLoaded;
 
             foreach (var kafkaSource in kafkaSources)
             {
@@ -57,6 +61,8 @@ namespace CdcTools.KafkaToRedshift.Consumers
                     }
                 }));
             }
+
+            return columnsLoaded;
         }
 
         public void WaitForCompletion()
@@ -65,23 +71,51 @@ namespace CdcTools.KafkaToRedshift.Consumers
             Task.WaitAll(_redshiftTasks.ToArray());
         }
 
+        private async Task<bool> CacheRedshiftColumns(List<string> tables)
+        {
+            try
+            {
+                await _redshiftWriter.CacheTableColumnsAsync(tables);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed getting Redshift column meta data. {ex}");
+                return false;
+            }
+        }
+
         private void Consume(CancellationToken token, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges, string topic, string table)
         {
             var conf = new Dictionary<string, object>
             {
                   { "group.id", $"{table}-consumer-group" },
-                  { "bootstrap.servers", "localhost:9092" }
+                  { "bootstrap.servers", _kafkaBootstrapServers }
             };
+
+            foreach (var confPair in conf)
+                Console.WriteLine(topic + " - " + confPair.Key + ": " + confPair.Value);
 
             using (var consumer = new Consumer<string, string>(conf, new StringDeserializer(Encoding.UTF8), new StringDeserializer(Encoding.UTF8)))
             {
+                Console.WriteLine($"Subscribing to topic {topic}");
                 consumer.Subscribe(topic);
+                int secondsWithoutMessage = 0;
 
                 while (!token.IsCancellationRequested)
                 {
                     Message<string, string> msg = null;
                     if (consumer.Consume(out msg, TimeSpan.FromSeconds(1)))
+                    {
                         AddToBuffer(consumer, msg, accumulatedChanges);
+                        secondsWithoutMessage = 0;
+                    }
+                    else
+                    {
+                        secondsWithoutMessage++;
+                        if (secondsWithoutMessage % 30 == 0)
+                            Console.WriteLine($"{topic}: No messages in last {secondsWithoutMessage} seconds");
+                    }
                 }
             }
 

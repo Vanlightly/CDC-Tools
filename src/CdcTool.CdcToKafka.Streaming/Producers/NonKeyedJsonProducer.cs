@@ -14,12 +14,12 @@ namespace CdcTools.CdcToKafka.Streaming.Producers
     {
         private Producer<Null, string> _producer;
 
-        public NonKeyedJsonProducer(string topic)
+        public NonKeyedJsonProducer(string bootstrapServers, string topic)
             : base(topic)
         {
             _config = new Dictionary<string, object>
             {
-                { "bootstrap.servers", "localhost:9092" },
+                { "bootstrap.servers", bootstrapServers },
                 { "socket.blocking.max.ms", "1" } // workaround for https://github.com/confluentinc/confluent-kafka-dotnet/issues/501
             };
 

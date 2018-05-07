@@ -16,12 +16,16 @@ namespace CdcTools.CdcToKafka.Streaming
     {
         private List<Task> _loadTasks;
         private string _kafkaTopicPrefix;
+        private string _kafkaBootstrapServers;
+        private string _schemaRegistryUrl;
         private CdcReaderClient _cdcReaderClient;
 
         public FullLoadStreamer(IConfiguration configuration)
         {
-            _cdcReaderClient = new CdcReaderClient(configuration["database-connection"]);
-            _kafkaTopicPrefix = configuration["tableTopicPrefix"];
+            _cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"]);
+            _kafkaTopicPrefix = configuration["TableTopicPrefix"];
+            _kafkaBootstrapServers = configuration["KafkaBootstrapServers"];
+            _schemaRegistryUrl = configuration["KafkaSchemaRegistryUrl"];
 
             _loadTasks = new List<Task>();
         }
@@ -75,7 +79,7 @@ namespace CdcTools.CdcToKafka.Streaming
             Console.WriteLine($"Table {tableSchema.Schema}.{tableSchema.TableName} has {rowCount} rows to export");
             int progress = 0;
 
-            using (var producer = ProducerFactory.GetProducer(topicName, tableSchema, serializationMode, sendWithKey))
+            using (var producer = ProducerFactory.GetProducer(topicName, tableSchema, serializationMode, sendWithKey, _kafkaBootstrapServers, _schemaRegistryUrl))
             {
                 long ctr = 0;
                 var firstBatch = await _cdcReaderClient.GetFirstBatchAsync(tableSchema, batchSize);

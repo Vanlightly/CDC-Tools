@@ -18,13 +18,13 @@ namespace CdcTools.CdcToKafka.Streaming.Producers
         private TableSchema _tableSchema;
         private Producer<Null, GenericRecord> _producer;
 
-        public NonKeyedAvroProducer(string topic, AvroTableTypeConverter avroTableTypeConverter, TableSchema tableSchema)
+        public NonKeyedAvroProducer(string bootstrapServers, string schemaRegistryUrl, string topic, AvroTableTypeConverter avroTableTypeConverter, TableSchema tableSchema)
             : base(topic)
         {
             _config = new Dictionary<string, object>
             {
-                { "bootstrap.servers", "localhost:9092" },
-                { "schema.registry.url", "http://localhost:8081" },
+                { "bootstrap.servers", bootstrapServers },
+                { "schema.registry.url", schemaRegistryUrl },
                 { "socket.blocking.max.ms", "1" } // workaround for https://github.com/confluentinc/confluent-kafka-dotnet/issues/501
             };
 

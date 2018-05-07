@@ -51,5 +51,8 @@ services:
       RP_ZOOKEEPER_CONNECT: "kafkaserver:2181"
       RP_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
 networks:
+  default:
+    external:
+      name: kafka-shared-net
   kafkanet:
     driver: bridge

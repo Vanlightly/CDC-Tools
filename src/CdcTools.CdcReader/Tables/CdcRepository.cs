@@ -13,6 +13,7 @@ namespace CdcTools.CdcReader.Tables
     internal class CdcRepository : ICdcRepository
     {
         private string _connString;
+        private byte[] _noCdcDataLsn = new byte[10];
 
         public CdcRepository(string connectionString)
         {
@@ -60,6 +61,9 @@ SELECT @from_lsn", tableName);
         {
             var batch = new ChangeBatch();
 
+            if (!HasValue(fromLsn))
+                return batch;
+            
             using (var conn = await GetConnectionAsync())
             {
                 var command = conn.CreateCommand();
@@ -139,6 +143,9 @@ ORDER BY __$seqval", batchSize + 1, tableSchema.TableName);
             var toStr = BitConverter.ToString(toLsn);
             var batch = new ChangeBatch();
 
+            if (!HasValue(fromLsn))
+                return batch;
+
             using (var conn = await GetConnectionAsync())
             {
                 var command = conn.CreateCommand();
@@ -209,6 +216,17 @@ ORDER BY __$seqval", batchSize + 1, tableSchema.TableName);
             }
 
             return batch;
+        }
+
+        private bool HasValue(byte[] lsn)
+        {
+            foreach(byte b in lsn)
+            {
+                if (b > 0)
+                    return true;
+            }
+
+            return false;
         }
 
         private async Task<SqlConnection> GetConnectionAsync()

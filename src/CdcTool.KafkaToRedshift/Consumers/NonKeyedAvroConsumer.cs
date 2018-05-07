@@ -22,17 +22,24 @@ namespace CdcTools.KafkaToRedshift.Consumers
         private IRedshiftWriter _redshiftWriter;
         private List<Task> _consumerTasks;
         private List<Task> _redshiftTasks;
-        
-        public NonKeyedAvroConsumer(IRedshiftWriter redshiftWriter)
+        private string _kafkaBootstrapServers;
+        private string _schemaRegistryUrl;
+
+        public NonKeyedAvroConsumer(IRedshiftWriter redshiftWriter, string kafkaBootstrapServers, string schemaRegistryUrl)
         {
             _redshiftWriter = redshiftWriter;
             _consumerTasks = new List<Task>();
             _redshiftTasks = new List<Task>();
+
+            _kafkaBootstrapServers = kafkaBootstrapServers;
+            _schemaRegistryUrl = schemaRegistryUrl;
         }
 
-        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
+        public async Task<bool> StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
         {
-            await _redshiftWriter.CacheTableColumnsAsync(kafkaSources.Select(x => x.Table).ToList());
+            var columnsLoaded = await CacheRedshiftColumns(kafkaSources.Select(x => x.Table).ToList());
+            if (!columnsLoaded)
+                return columnsLoaded;
 
             foreach (var kafkaSource in kafkaSources)
             {
@@ -61,6 +68,8 @@ namespace CdcTools.KafkaToRedshift.Consumers
                     }
                 }));
             }
+
+            return columnsLoaded;
         }
 
         public void WaitForCompletion()
@@ -69,20 +78,65 @@ namespace CdcTools.KafkaToRedshift.Consumers
             Task.WaitAll(_redshiftTasks.ToArray());
         }
 
+        private async Task<bool> CacheRedshiftColumns(List<string> tables)
+        {
+            try
+            {
+                await _redshiftWriter.CacheTableColumnsAsync(tables);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed getting Redshift column meta data. {ex}");
+                return false;
+            }
+        }
+
         private void Consume(CancellationToken token, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges, string topic, string table)
         {
             var conf = new Dictionary<string, object>
             {
                   { "group.id", $"{table}-consumer-group" },
-                  { "bootstrap.servers", "localhost:9092" },
-                  { "schema.registry.url", "http://localhost:8081" }
+                  { "statistics.interval.ms", 60000 },
+                  { "broker.address.family", "V4" },
+                  { "bootstrap.servers", _kafkaBootstrapServers },
+                  { "schema.registry.url", _schemaRegistryUrl }
             };
+
+            foreach (var confPair in conf)
+                Console.WriteLine(topic + " - " + confPair.Key + ": " + confPair.Value);
 
             AvroTableTypeConverter avroTableTypeConverter = null;
 
             using (var consumer = new Consumer<Null, GenericRecord>(conf, null, new AvroDeserializer<GenericRecord>()))
             {
+                consumer.OnPartitionEOF += (_, end)
+                    => Console.WriteLine($"Reached end of topic {end.Topic} partition {end.Partition}, next message will be at offset {end.Offset}");
+
+                consumer.OnError += (_, error)
+                    => Console.WriteLine($"{topic} - Error: {error}");
+
+                consumer.OnConsumeError += (_, error)
+                    => Console.WriteLine($"{topic} - Consume error: {error}");
+
+                consumer.OnPartitionsAssigned += (_, partitions) =>
+                {
+                    Console.WriteLine($"{topic} - Assigned partitions: [{string.Join(", ", partitions)}], member id: {consumer.MemberId}");
+                    consumer.Assign(partitions);
+                };
+
+                consumer.OnPartitionsRevoked += (_, partitions) =>
+                {
+                    Console.WriteLine($"{topic} - Revoked partitions: [{string.Join(", ", partitions)}]");
+                    consumer.Unassign();
+                };
+
+                consumer.OnStatistics += (_, json)
+                    => Console.WriteLine($"{topic} - Statistics: {json}");
+
+                Console.WriteLine($"Subscribing to topic {topic}");
                 consumer.Subscribe(topic);
+                int secondsWithoutMessage = 0;
 
                 while (!token.IsCancellationRequested)
                 {
@@ -95,15 +149,23 @@ namespace CdcTools.KafkaToRedshift.Consumers
                             avroTableTypeConverter = new AvroTableTypeConverter(msg.Value.Schema);
 
                         AddToBuffer(consumer, msg, accumulatedChanges, avroTableTypeConverter);
+                        secondsWithoutMessage = 0;
                     }
+                    else
+                    {
+                        secondsWithoutMessage++;
+                        if (secondsWithoutMessage % 30 == 0)
+                            Console.WriteLine($"{topic}: No messages in last {secondsWithoutMessage} seconds");
+                    }
+
                 }
             }
 
             accumulatedChanges.CompleteAdding(); // notifies consumers that no more messages will come
         }
 
-        private void AddToBuffer(Consumer<Null, GenericRecord> consumer, 
-            Message<Null, GenericRecord> avroMessage, 
+        private void AddToBuffer(Consumer<Null, GenericRecord> consumer,
+            Message<Null, GenericRecord> avroMessage,
             BlockingCollection<MessageProxy<RowChange>> accumulatedChanges,
             AvroTableTypeConverter avroTableTypeConverter)
         {

@@ -9,6 +9,7 @@
     <PackageReference Include="Confluent.Kafka" Version="0.11.4" />
     <PackageReference Include="Confluent.Kafka.Avro" Version="0.11.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="2.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.CommandLine" Version="2.0.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="2.0.1" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="2.0.1" />
   </ItemGroup>

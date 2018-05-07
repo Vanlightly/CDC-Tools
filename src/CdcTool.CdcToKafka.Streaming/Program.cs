@@ -31,7 +31,8 @@ namespace CdcTools.CdcToKafka.Streaming
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                .AddEnvironmentVariables("CdcStreamer_"); // all environment variables with this prefix;
+                .AddCommandLine(args)
+                .AddEnvironmentVariables("CDCTOOLS_"); // all environment variables with this prefix;
 
             IConfigurationRoot configuration = builder.Build();
 
@@ -43,6 +44,8 @@ namespace CdcTools.CdcToKafka.Streaming
             var sendWithKey = GetSendWithKey(args, configuration);
             var batchSize = GetBatchSize(args, configuration);
             var printMod = GetPrintMod(args, configuration);
+            var kafkaBootstrapServers = GetBootstrapServers(args, configuration);
+            var schemaRegistryUrl = GetSchemaRegistryUrl(args, configuration);
             var cts = new CancellationTokenSource();
 
             if(isFullLoad)
@@ -52,16 +55,12 @@ namespace CdcTools.CdcToKafka.Streaming
                 Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
 
                 // wait for shutdown signal
-                bool shutdown = false;
-                while (!shutdown)
-                {
-                    if (starting.IsSet)
-                        shutdown = true;
-                    else if (Console.ReadKey(true).Key == ConsoleKey.X)
-                        shutdown = true;
-                    else
-                        Task.Delay(1000);
-                }
+#if DEBUG
+                Console.WriteLine("Press any key to shutdown");
+                Console.ReadKey();
+#else
+            starting.Wait();
+#endif
 
                 Console.WriteLine("Received signal gracefully shutting down");
                 cts.Cancel();
@@ -83,16 +82,12 @@ namespace CdcTools.CdcToKafka.Streaming
                 Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
 
                 // wait for shutdown signal
-                bool shutdown = false;
-                while (!shutdown)
-                {
-                    if (starting.IsSet)
-                        shutdown = true;
-                    else if (Console.ReadKey(true).Key == ConsoleKey.X)
-                        shutdown = true;
-                    else
-                        Task.Delay(1000);
-                }
+#if DEBUG
+                Console.WriteLine("Press any key to shutdown");
+                Console.ReadKey();
+#else
+                starting.Wait();
+#endif
 
                 Console.WriteLine("Received signal gracefully shutting down");
                 cts.Cancel();
@@ -103,13 +98,7 @@ namespace CdcTools.CdcToKafka.Streaming
 
         private static bool IsFullLoad(string[] args, IConfiguration configuration)
         {
-            foreach (var arg in args)
-            {
-                if (arg.Equals("--fullload", StringComparison.OrdinalIgnoreCase) || arg.Equals("--f", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            var mode = configuration["mode"];
+            var mode = configuration["Mode"];
             if (mode != null)
             {
                 if (mode.Equals("cdc"))
@@ -123,17 +112,9 @@ namespace CdcTools.CdcToKafka.Streaming
 
         private static List<string> GetTables(string[] args, IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
+            if (configuration["Tables"] != null)
             {
-                if (args[i].Equals("--table") || args[i].Equals("-t"))
-                {
-                    return args[i + 1].Replace("(", "").Replace(")", "").Split(',').ToList();
-                }
-            }
-
-            if (configuration["tables"] != null)
-            {
-                return configuration["tables"].Split(',').ToList();
+                return configuration["Tables"].Split(',').ToList();
             }
             else
             {
@@ -143,69 +124,37 @@ namespace CdcTools.CdcToKafka.Streaming
 
         private static TimeSpan GetInterval(string[] args, IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--interval") || args[i].Equals("-i"))
-                {
-                    return TimeSpan.FromMilliseconds(int.Parse(args[i + 1]));
-                }
-            }
-
-
-            return TimeSpan.FromMilliseconds(int.Parse(configuration["intervalMs"]));
+            return TimeSpan.FromMilliseconds(int.Parse(configuration["IntervalMs"]));
         }
 
         private static SerializationMode GetSerializationMode(string[] args, IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--serialization") || args[i].Equals("-s"))
-                {
-                    return (SerializationMode)Enum.Parse(typeof(SerializationMode), args[i + 1]);
-                }
-            }
-
-
-            return (SerializationMode)Enum.Parse(typeof(SerializationMode), configuration["serializationMode"]);
+            return (SerializationMode)Enum.Parse(typeof(SerializationMode), configuration["SerializationMode"]);
         }
 
         private static int GetBatchSize(string[] args, IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--batchsize") || args[i].Equals("-b"))
-                {
-                    return int.Parse(args[i + 1]);
-                }
-            }
-
-            return int.Parse(configuration["batchSize"]);
+            return int.Parse(configuration["BatchSize"]);
         }
 
         private static bool GetSendWithKey(string[] args, IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--sendkey") || args[i].Equals("-k"))
-                {
-                    return bool.Parse(args[i + 1]);
-                }
-            }
-
-            return bool.Parse(configuration["sendWithKey"]);
+            return bool.Parse(configuration["SendWithKey"]);
         }
 
         private static int GetPrintMod(string[] args, IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--printmod") || args[i].Equals("-p"))
-                {
-                    return int.Parse(args[i + 1]);
-                }
-            }
+            return int.Parse(configuration["PrintPercentProgressMod"]);
+        }
 
-            return int.Parse(configuration["printPercentProgressMod"]);
+        private static string GetBootstrapServers(string[] args, IConfiguration configuration)
+        {
+            return configuration["KafkaBootstrapServers"];
+        }
+
+        private static string GetSchemaRegistryUrl(string[] args, IConfiguration configuration)
+        {
+            return configuration["KafkaSchemaRegistryUrl"];
         }
     }
 }

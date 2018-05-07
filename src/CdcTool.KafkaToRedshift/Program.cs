@@ -18,6 +18,7 @@ namespace CdcTools.KafkaToRedshift
         {
             Console.Title = "Kafka to Redshift Writer";
 
+            // support graceful shutdown in Docker
             var ended = new ManualResetEventSlim();
             var starting = new ManualResetEventSlim();
 
@@ -29,62 +30,59 @@ namespace CdcTools.KafkaToRedshift
                 ended.Wait();
             };
 
+            // set up configuration
             var builder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                .AddCommandLine(args)
                 .AddEnvironmentVariables("CDCTOOLS_"); // all environment variables with this prefix;
 
             IConfigurationRoot configuration = builder.Build();
 
-            var tables = GetTables(args, configuration);
-            var windowSizePeriod = GetWindowSizeTimePeriod(args, configuration);
-            var windowSizeItems = GetWindowSizeItemCount(args, configuration);
-            var serializationMode = GetSerializationMode(args, configuration);
-            var messagesHaveKey = MessagesHaveKey(args, configuration);
-
+            // get parameters and start
+            var tables = GetTables(configuration);
+            var windowSizePeriod = GetWindowSizeTimePeriod(configuration);
+            var windowSizeItems = GetWindowSizeItemCount(configuration);
+            var serializationMode = GetSerializationMode(configuration);
+            var messagesHaveKey = MessagesHaveKey(configuration);
+            
             var kafkaSources = tables.Select(x => new KafkaSource()
             {
                 Table = x,
-                Topic = configuration["tableTopicPrefix"] + x.ToLower()
+                Topic = configuration["TableTopicPrefix"] + x.ToLower()
             }).ToList();
 
             var cts = new CancellationTokenSource();
 
             IConsumer consumer = GetConsumer(serializationMode, messagesHaveKey, configuration);
-            consumer.StartConsumingAsync(cts.Token, windowSizePeriod, windowSizeItems, kafkaSources).Wait();
-            Console.WriteLine($"Consuming messages of tables {string.Join(',', tables)} in {serializationMode.ToString()} deserialization mode with {windowSizePeriod} window sizes");
-            Console.WriteLine("Press X to shutdown");
-
-            bool shutdown = false;
-            while (!shutdown)
+            bool startedOk = consumer.StartConsumingAsync(cts.Token, windowSizePeriod, windowSizeItems, kafkaSources).Result;
+            if (startedOk)
             {
-                if (starting.IsSet)
-                    shutdown = true;
-                else if (Console.ReadKey(true).Key == ConsoleKey.X)
-                    shutdown = true;
-                else
-                    Task.Delay(1000);
-            }
+                Console.WriteLine($"Consuming messages of tables {string.Join(',', tables)} in {serializationMode.ToString()} deserialization mode with {windowSizePeriod} window sizes");
 
-            Console.WriteLine("Received signal gracefully shutting down");
+#if DEBUG
+                Console.WriteLine("Press any key to shutdown");
+                Console.ReadKey();
+#else
+                starting.Wait();
+                Console.WriteLine("Received signal gracefully shutting down");
+#endif
+            }
+            else
+            {
+                Console.WriteLine("Failed to start up correctly, shutting down");
+            }
+            
             cts.Cancel();
             consumer.WaitForCompletion();
             ended.Set();
         }
 
-        private static List<string> GetTables(string[] args, IConfiguration configuration)
+        private static List<string> GetTables(IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
+            if (configuration["Tables"] != null)
             {
-                if (args[i].Equals("--table") || args[i].Equals("-t"))
-                {
-                    return args[i + 1].Replace("(", "").Replace(")", "").Split(',').ToList();
-                }
-            }
-
-            if (configuration["tables"] != null)
-            {
-                return configuration["tables"].Split(',').ToList();
+                return configuration["Tables"].Split(',').ToList();
             }
             else
             {
@@ -92,58 +90,34 @@ namespace CdcTools.KafkaToRedshift
             }
         }
 
-        private static TimeSpan GetWindowSizeTimePeriod(string[] args, IConfiguration configuration)
+        private static TimeSpan GetWindowSizeTimePeriod(IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--window-ms") || args[i].Equals("-wm"))
-                {
-                    return TimeSpan.FromMilliseconds(int.Parse(args[i + 1]));
-                }
-            }
-
             return TimeSpan.FromMilliseconds(int.Parse(configuration["WindowMs"]));
         }
 
-        private static int GetWindowSizeItemCount(string[] args, IConfiguration configuration)
+        private static int GetWindowSizeItemCount(IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--window-items") || args[i].Equals("-wi"))
-                {
-                    return int.Parse(args[i + 1]);
-                }
-            }
-
-
             return int.Parse(configuration["WindowItems"]);
         }
 
-        private static SerializationMode GetSerializationMode(string[] args, IConfiguration configuration)
+        private static SerializationMode GetSerializationMode(IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--serialization") || args[i].Equals("-s"))
-                {
-                    return (SerializationMode)Enum.Parse(typeof(SerializationMode), args[i + 1]);
-                }
-            }
-
-
-            return (SerializationMode)Enum.Parse(typeof(SerializationMode), configuration["serializationMode"]);
+            return (SerializationMode)Enum.Parse(typeof(SerializationMode), configuration["SerializationMode"]);
         }
 
-        private static bool MessagesHaveKey(string[] args, IConfiguration configuration)
+        private static bool MessagesHaveKey(IConfiguration configuration)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (args[i].Equals("--messagekey") || args[i].Equals("-k"))
-                {
-                    return bool.Parse(args[i + 1]);
-                }
-            }
-
             return bool.Parse(configuration["messagesHaveKey"]);
+        }
+
+        private static string GetBootstrapServers(IConfiguration configuration)
+        {
+            return configuration["KafkaBootstrapServers"];
+        }
+
+        private static string GetSchemaRegistryUrl(IConfiguration configuration)
+        {
+            return configuration["KafkaSchemaRegistryUrl"];
         }
 
         private static IRedshiftWriter GetRedshiftWriter(IConfiguration configuration)
@@ -169,16 +143,16 @@ namespace CdcTools.KafkaToRedshift
             if (serializationMode == SerializationMode.Avro)
             {
                 if (messagesHaveKey)
-                    return new KeyedAvroConsumer(redshiftWriter);
+                    return new KeyedAvroConsumer(redshiftWriter, GetBootstrapServers(configuration), GetSchemaRegistryUrl(configuration));
                 else
-                    return new NonKeyedAvroConsumer(redshiftWriter);
+                    return new NonKeyedAvroConsumer(redshiftWriter, GetBootstrapServers(configuration), GetSchemaRegistryUrl(configuration));
             }
             else
             {
                 if (messagesHaveKey)
-                    return new KeyedJsonConsumer(redshiftWriter);
+                    return new KeyedJsonConsumer(redshiftWriter, GetBootstrapServers(configuration));
                 else
-                    return new NonKeyedJsonConsumer(redshiftWriter);
+                    return new NonKeyedJsonConsumer(redshiftWriter, GetBootstrapServers(configuration));
             }
         }
     }

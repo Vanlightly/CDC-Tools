@@ -22,18 +22,24 @@ namespace CdcTools.KafkaToRedshift.Consumers
         private IRedshiftWriter _redshiftWriter;
         private List<Task> _consumerTasks;
         private List<Task> _redshiftTasks;
-        private AvroTableTypeConverter _avroTableTypeConverter;
+        private string _kafkaBootstrapServers;
+        private string _schemaRegistryUrl;
 
-        public KeyedAvroConsumer(IRedshiftWriter redshiftWriter)
+        public KeyedAvroConsumer(IRedshiftWriter redshiftWriter, string kafkaBootstrapServers, string schemaRegistryUrl)
         {
             _redshiftWriter = redshiftWriter;
             _consumerTasks = new List<Task>();
             _redshiftTasks = new List<Task>();
+
+            _kafkaBootstrapServers = kafkaBootstrapServers;
+            _schemaRegistryUrl = schemaRegistryUrl;
         }
 
-        public async Task StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
+        public async Task<bool> StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources)
         {
-            await _redshiftWriter.CacheTableColumnsAsync(kafkaSources.Select(x => x.Table).ToList());
+            var columnsLoaded = await CacheRedshiftColumns(kafkaSources.Select(x => x.Table).ToList());
+            if (!columnsLoaded)
+                return columnsLoaded;
 
             foreach (var kafkaSource in kafkaSources)
             {
@@ -62,6 +68,8 @@ namespace CdcTools.KafkaToRedshift.Consumers
                     }
                 }));
             }
+
+            return columnsLoaded;
         }
 
         public void WaitForCompletion()
@@ -70,20 +78,39 @@ namespace CdcTools.KafkaToRedshift.Consumers
             Task.WaitAll(_redshiftTasks.ToArray());
         }
 
+        private async Task<bool> CacheRedshiftColumns(List<string> tables)
+        {
+            try
+            {
+                await _redshiftWriter.CacheTableColumnsAsync(tables);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed getting Redshift column meta data. {ex}");
+                return false;
+            }
+        }
+
         private void Consume(CancellationToken token, BlockingCollection<MessageProxy<RowChange>> accumulatedChanges, string topic, string table)
         {
             var conf = new Dictionary<string, object>
             {
                   { "group.id", $"{table}-consumer-group" },
-                  { "bootstrap.servers", "localhost:9092" },
-                  { "schema.registry.url", "http://localhost:8081" }
+                  { "bootstrap.servers", _kafkaBootstrapServers },
+                  { "schema.registry.url", _schemaRegistryUrl }
             };
+
+            foreach (var confPair in conf)
+                Console.WriteLine(topic + " - " + confPair.Key + ": " + confPair.Value);
 
             AvroTableTypeConverter avroTableTypeConverter = null;
 
             using (var consumer = new Consumer<string, GenericRecord>(conf, new StringDeserializer(Encoding.UTF8), new AvroDeserializer<GenericRecord>()))
             {
+                Console.WriteLine($"Subscribing to topic {topic}");
                 consumer.Subscribe(topic);
+                int secondsWithoutMessage = 0;
 
                 while (!token.IsCancellationRequested)
                 {
@@ -96,6 +123,13 @@ namespace CdcTools.KafkaToRedshift.Consumers
                             avroTableTypeConverter = new AvroTableTypeConverter(msg.Value.Schema);
 
                         AddToBuffer(consumer, msg, accumulatedChanges, avroTableTypeConverter);
+                        secondsWithoutMessage = 0;
+                    }
+                    else
+                    {
+                        secondsWithoutMessage++;
+                        if (secondsWithoutMessage % 30 == 0)
+                            Console.WriteLine($"{topic}: No messages in last {secondsWithoutMessage} seconds");
                     }
                 }
             }

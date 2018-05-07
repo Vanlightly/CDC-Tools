@@ -8,7 +8,7 @@ namespace CdcTools.KafkaToRedshift.Consumers
 {
     public interface IConsumer
     {
-        Task StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources);
+        Task<bool> StartConsumingAsync(CancellationToken token, TimeSpan windowSizePeriod, int windowSizeItems, List<KafkaSource> kafkaSources);
         void WaitForCompletion();
     }
 }
