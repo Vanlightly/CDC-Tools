@@ -55,14 +55,33 @@ namespace CdcTools.CdcToKafka.Streaming
             {
                 var fullLoadStreamer = new FullLoadStreamer(configuration, cdcReaderClient);
                 fullLoadStreamer.StreamTablesAsync(cts.Token, executionId, tables, serializationMode, sendWithKey, batchSize, printMod).Wait();
-                Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
+                Console.WriteLine("Streaming to Kafka in progress.");
 
+                Thread.Sleep(2000);
+                bool shutdown = false;
                 // wait for shutdown signal
 #if DEBUG
                 Console.WriteLine("Press any key to shutdown");
-                Console.ReadKey();
+
+                while (!shutdown)
+                {
+                    if (Console.KeyAvailable)
+                        shutdown = true;
+                    else if (fullLoadStreamer.HasFinished())
+                        shutdown = true;
+
+                    Thread.Sleep(500);
+                }
 #else
-            starting.Wait();
+                while (!shutdown)
+                {
+                    if (starting.IsSet)
+                        shutdown = true;
+                    else if (fullLoadStreamer.HasFinished())
+                        shutdown = true;
+
+                    Thread.Sleep(500);
+                }
 #endif
 
                 Console.WriteLine("Received signal gracefully shutting down");

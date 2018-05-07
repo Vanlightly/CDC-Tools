@@ -54,12 +54,31 @@ namespace CdcTools.CdcToRedshift
                 fullLoadExporter.ExportTablesAsync(cts.Token, executionId, tables, batchSize, printMod).Wait();
                 Console.WriteLine("Export started.");
 
+                Thread.Sleep(2000);
+                bool shutdown = false;
                 // wait for shutdown signal
 #if DEBUG
                 Console.WriteLine("Press any key to shutdown");
-                Console.ReadKey();
+                
+                while (!shutdown)
+                {
+                    if (Console.KeyAvailable)
+                        shutdown = true;
+                    else if (fullLoadExporter.HasFinished())
+                        shutdown = true;
+
+                    Thread.Sleep(500);
+                }
 #else
-            starting.Wait();
+                while (!shutdown)
+                {
+                    if (starting.IsSet)
+                        shutdown = true;
+                    else if (fullLoadExporter.HasFinished())
+                        shutdown = true;
+
+                    Thread.Sleep(500);
+                }
 #endif
 
                 Console.WriteLine("Received signal gracefully shutting down");

@@ -63,6 +63,11 @@ namespace CdcTools.CdcToRedshift
             Task.WaitAll(_loadTasks.ToArray());
         }
 
+        public bool HasFinished()
+        {
+            return _loadTasks.All(x => x.IsCompleted);
+        }
+
         private async Task ExportTableAsync(CancellationToken token,
             string executionId,
             TableSchema tableSchema,

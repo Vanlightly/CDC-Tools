@@ -9,11 +9,11 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Common", "Common", "{40662B
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.SqlToAvro", "src\CdcTools.SqlToAvro\CdcTools.SqlToAvro.csproj", "{979F5FD5-900A-4710-9AB6-D565EFA41EBB}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.CdcToKafka.Streaming", "src\CdcTool.CdcToKafka.Streaming\CdcTools.CdcToKafka.Streaming.csproj", "{454ADC46-0951-46A5-9AF6-B52E0F4047CB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.CdcToKafka.Streaming", "src\CdcTools.CdcToKafka.Streaming\CdcTools.CdcToKafka.Streaming.csproj", "{454ADC46-0951-46A5-9AF6-B52E0F4047CB}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.Redshift", "src\CdcTools.Redshift\CdcTools.Redshift.csproj", "{71C46BB8-5078-4369-83BF-7B70BAE564EA}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.KafkaToRedshift", "src\CdcTool.KafkaToRedshift\CdcTools.KafkaToRedshift.csproj", "{EC28C6BC-FD6A-4CC3-A98D-3B1633AC2D8C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.KafkaToRedshift", "src\CdcTools.KafkaToRedshift\CdcTools.KafkaToRedshift.csproj", "{EC28C6BC-FD6A-4CC3-A98D-3B1633AC2D8C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CdcTools.CdcToRedshift", "src\CdcTools.CdcToRedshift\CdcTools.CdcToRedshift.csproj", "{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71}"
 EndProject
