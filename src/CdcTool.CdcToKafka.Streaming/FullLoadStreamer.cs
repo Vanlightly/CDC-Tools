@@ -20,9 +20,9 @@ namespace CdcTools.CdcToKafka.Streaming
         private string _schemaRegistryUrl;
         private CdcReaderClient _cdcReaderClient;
 
-        public FullLoadStreamer(IConfiguration configuration)
+        public FullLoadStreamer(IConfiguration configuration, CdcReaderClient cdcReaderClient)
         {
-            _cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"]);
+            _cdcReaderClient = cdcReaderClient;
             _kafkaTopicPrefix = configuration["TableTopicPrefix"];
             _kafkaBootstrapServers = configuration["KafkaBootstrapServers"];
             _schemaRegistryUrl = configuration["KafkaSchemaRegistryUrl"];
@@ -30,7 +30,8 @@ namespace CdcTools.CdcToKafka.Streaming
             _loadTasks = new List<Task>();
         }
 
-        public async Task StreamTablesAsync(CancellationToken token, 
+        public async Task StreamTablesAsync(CancellationToken token,
+            string executionId,
             List<string> tables,
             SerializationMode serializationMode,
             bool sendWithKey,
@@ -48,6 +49,7 @@ namespace CdcTools.CdcToKafka.Streaming
                     try
                     {
                         await StreamTableAsync(token,
+                            executionId,
                             tableSchema,
                             serializationMode,
                             sendWithKey,
@@ -68,6 +70,7 @@ namespace CdcTools.CdcToKafka.Streaming
         }
 
         private async Task StreamTableAsync(CancellationToken token,
+            string executionId,
             TableSchema tableSchema,
             SerializationMode serializationMode,
             bool sendWithKey,
@@ -82,11 +85,23 @@ namespace CdcTools.CdcToKafka.Streaming
             using (var producer = ProducerFactory.GetProducer(topicName, tableSchema, serializationMode, sendWithKey, _kafkaBootstrapServers, _schemaRegistryUrl))
             {
                 long ctr = 0;
-                var firstBatch = await _cdcReaderClient.GetFirstBatchAsync(tableSchema, batchSize);
-                ctr = await PublishAsync(producer, token, firstBatch, ctr);
+                PrimaryKeyValue lastRetrievedKey = null;
+                var existingOffset = await _cdcReaderClient.GetLastFullLoadOffsetAsync(executionId, tableSchema.TableName);
+                if (existingOffset.Result == CdcReader.State.Result.NoStoredState)
+                {
+                    Console.WriteLine($"Table {tableSchema.TableName} - No previous stored offset. Starting from first row");
+                    var firstBatch = await _cdcReaderClient.GetFirstBatchAsync(tableSchema, batchSize);
+                    ctr = await PublishAsync(producer, token, firstBatch, ctr);
+                    lastRetrievedKey = firstBatch.LastRowKey;
+                    await _cdcReaderClient.StoreFullLoadOffsetAsync(executionId, tableSchema.TableName, firstBatch.LastRowKey);
+                }
+                else
+                {
+                    Console.WriteLine($"Table {tableSchema.TableName} - No data to export");
+                    lastRetrievedKey = existingOffset.State;
+                }
 
                 bool finished = false;
-                var lastRetrievedKey = firstBatch.LastRowKey;
                 
                 while (!token.IsCancellationRequested && !finished)
                 {
@@ -94,13 +109,14 @@ namespace CdcTools.CdcToKafka.Streaming
 
                     var batch = await _cdcReaderClient.GetBatchAsync(tableSchema, lastRetrievedKey, batchSize);
                     ctr = await PublishAsync(producer, token, batch, ctr);
-
+                    
                     int latestProgress = (int)(((double)ctr / (double)rowCount)*100);
                     if(progress != latestProgress && latestProgress % printPercentProgressMod == 0)
                         Console.WriteLine($"Table {tableSchema.Schema}.{tableSchema.TableName} - Progress at {latestProgress}% ({ctr} records)");
 
                     progress = latestProgress;
                     lastRetrievedKey = batch.LastRowKey;
+                    await _cdcReaderClient.StoreFullLoadOffsetAsync(executionId, tableSchema.TableName, lastRetrievedKey);
 
                     if (!batch.Records.Any() || batch.Records.Count < batchSize)
                         finished = true;

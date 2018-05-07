@@ -10,6 +10,8 @@ using System.Numerics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using CdcTools.CdcReader.State;
+using CdcTools.CdcReader.Tables;
 
 namespace CdcTools.CdcToKafka.Streaming
 {
@@ -21,9 +23,9 @@ namespace CdcTools.CdcToKafka.Streaming
         private CdcReaderClient _cdcReaderClient;
         private List<Task> _readerTasks;
 
-        public ChangeStreamer(IConfiguration configuration)
+        public ChangeStreamer(IConfiguration configuration, CdcReaderClient cdcReaderClient)
         {
-            _cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"]);
+            _cdcReaderClient = cdcReaderClient;
             _tableTopicPrefix = configuration["TableTopicPrefix"];
             _kafkaBootstrapServers = configuration["KafkaBootstrapServers"];
             _schemaRegistryUrl = configuration["KafkaSchemaRegistryUrl"];
@@ -43,6 +45,7 @@ namespace CdcTools.CdcToKafka.Streaming
                     try
                     {
                         await StartPublishingChanges(token,
+                            cdcRequest.ExecutionId,
                             schemaName,
                             tableName,
                             cdcRequest.Interval,
@@ -65,6 +68,7 @@ namespace CdcTools.CdcToKafka.Streaming
         }
 
         private async Task StartPublishingChanges(CancellationToken token, 
+            string executionId,
             string schemaName, 
             string tableName, 
             TimeSpan maxInterval, 
@@ -74,50 +78,28 @@ namespace CdcTools.CdcToKafka.Streaming
         {
             var tableTopic = _tableTopicPrefix + tableName.ToLower();
             var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(schemaName, tableName);
-            var initialFromLsn = await _cdcReaderClient.GetMinValidLsnAsync(tableName);
-            var initialToLsn = await _cdcReaderClient.GetMaxLsnAsync();
-            
+                        
             using (var producer = ProducerFactory.GetProducer(tableTopic, tableSchema, serializationMode, sendWithKey, _kafkaBootstrapServers, _schemaRegistryUrl))
             {
-                var hasFirstChange = false;
-                ChangeBatch syncBatch = null;
-                ChangeRecord firstChange = null;
-                while (!hasFirstChange && !token.IsCancellationRequested)
-                {
-                    syncBatch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, initialFromLsn, initialToLsn, 1);
-                    if (syncBatch.Changes.Any())
-                    {
-                        firstChange = syncBatch.Changes.First();
-                        hasFirstChange = true;
-                    }
-                    else
-                        await Task.Delay(maxInterval);
-                }
-
-                await producer.SendAsync(token, firstChange);
-
-                var crossTranBatch = syncBatch.MoreOfLastTransaction;
-                var fromLsn = firstChange.Lsn;
-                var fromSeqVal = firstChange.SeqVal;
-                var toLsn = initialToLsn;
+                var cdcState = await SetInitialStateAsync(token, producer, executionId, tableSchema, maxInterval);
                 var sw = new Stopwatch();
 
                 while (!token.IsCancellationRequested)
                 {
-                    toLsn = await _cdcReaderClient.GetMaxLsnAsync();
+                    cdcState.ToLsn = await _cdcReaderClient.GetMaxLsnAsync();
                     sw.Start();
-                    Console.WriteLine($"{tableName} batch from LSN {GetBigInteger(fromLsn)} to {GetBigInteger(toLsn)}");
+                    Console.WriteLine($"{tableName} batch from LSN {GetBigInteger(cdcState.FromLsn)} to {GetBigInteger(cdcState.ToLsn)}");
 
                     bool more = true;
                     while (!token.IsCancellationRequested && more)
                     {
-                        if (GetBigInteger(fromLsn) <= GetBigInteger(toLsn))
+                        if (GetBigInteger(cdcState.FromLsn) <= GetBigInteger(cdcState.ToLsn))
                         {
                             ChangeBatch batch = null;
-                            if (crossTranBatch)
-                                batch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, fromLsn, fromSeqVal, toLsn, batchSize);
+                            if (cdcState.UnfinishedLsn)
+                                batch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, cdcState.FromLsn, cdcState.FromSeqVal, cdcState.ToLsn, batchSize);
                             else
-                                batch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, fromLsn, toLsn, batchSize);
+                                batch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, cdcState.FromLsn, cdcState.ToLsn, batchSize);
 
                             if (batch.Changes.Any())
                             {
@@ -126,29 +108,32 @@ namespace CdcTools.CdcToKafka.Streaming
                                 {
                                     await producer.SendAsync(token, change);
 
-                                    fromLsn = change.Lsn;
-                                    fromSeqVal = change.SeqVal;
+                                    cdcState.FromLsn = change.Lsn;
+                                    cdcState.FromSeqVal = change.SeqVal;
                                 }
 
                                 more = batch.MoreChanges;
-                                crossTranBatch = batch.MoreOfLastTransaction;
+                                cdcState.UnfinishedLsn = batch.MoreOfLastTransaction;
 
-                                if (crossTranBatch)
-                                    fromSeqVal = Increment(fromSeqVal);
+                                if (cdcState.UnfinishedLsn)
+                                    cdcState.FromSeqVal = Increment(cdcState.FromSeqVal);
                                 else
-                                    fromLsn = Increment(fromLsn);
+                                    cdcState.FromLsn = Increment(cdcState.FromLsn);
+
+                                var offset = GetOffset(cdcState);
+                                await BlockingStoreCdcOffsetAsync(token, executionId, tableName, offset);
                             }
                             else
                             {
                                 more = false;
-                                crossTranBatch = false;
+                                cdcState.UnfinishedLsn = false;
                                 Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} No changes");
                             }
                         }
                         else
                         {
                             more = false;
-                            crossTranBatch = false;
+                            cdcState.UnfinishedLsn = false;
                             Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} No changes");
                         }
                     }
@@ -158,6 +143,88 @@ namespace CdcTools.CdcToKafka.Streaming
                         await Task.Delay((int)remainingMs);
 
                     sw.Reset();
+                }
+            }
+        }
+
+        private async Task<CdcState> SetInitialStateAsync(CancellationToken token, IKafkaProducer producer, string executionId, TableSchema tableSchema, TimeSpan maxInterval)
+        {
+            byte[] initialToLsn = await _cdcReaderClient.GetMaxLsnAsync();
+
+            var existingOffset = await _cdcReaderClient.GetLastCdcOffsetAsync(executionId, tableSchema.TableName);
+            if (existingOffset.Result == Result.NoStoredState)
+            {
+                Console.WriteLine($"Table {tableSchema.TableName} - No previous stored offset. Starting from first change");
+                var initialFromLsn = await _cdcReaderClient.GetMinValidLsnAsync(tableSchema.TableName);
+
+                var hasFirstChange = false;
+                ChangeBatch syncBatch = null;
+                ChangeRecord firstChange = null;
+                while (!hasFirstChange && !token.IsCancellationRequested)
+                {
+                    syncBatch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, initialFromLsn, initialToLsn, 1);
+                    if (syncBatch.Changes.Any())
+                    {
+                        firstChange = syncBatch.Changes.First();
+                        await producer.SendAsync(token, firstChange);
+                        hasFirstChange = true;
+                    }
+                    else
+                        await Task.Delay(maxInterval);
+                }
+
+                var cdcState = new CdcState()
+                {
+                    FromLsn = firstChange.Lsn,
+                    FromSeqVal = firstChange.SeqVal,
+                    ToLsn = initialToLsn,
+                    UnfinishedLsn = syncBatch.MoreOfLastTransaction
+                };
+
+                var offset = GetOffset(cdcState);
+                await _cdcReaderClient.StoreCdcOffsetAsync(executionId, tableSchema.TableName, offset);
+
+                return cdcState;
+            }
+            else
+            {
+                Console.WriteLine($"Table {tableSchema.TableName} - Starting from stored offset");
+
+                return new CdcState()
+                {
+                    FromLsn = existingOffset.State.Lsn,
+                    FromSeqVal = existingOffset.State.SeqVal,
+                    ToLsn = initialToLsn,
+                    UnfinishedLsn = existingOffset.State.UnfinishedLsn
+                };
+            }
+        }
+
+        private Offset GetOffset(CdcState cdcState)
+        {
+            var offset = new Offset();
+            offset.Lsn = cdcState.FromLsn;
+            offset.SeqVal = cdcState.FromSeqVal;
+            offset.UnfinishedLsn = cdcState.UnfinishedLsn;
+
+            return offset;
+        }
+
+        private async Task BlockingStoreCdcOffsetAsync(CancellationToken token, string executionId, string tableName, Offset offset)
+        {
+            var stored = false;
+
+            while (!stored && !token.IsCancellationRequested)
+            {
+                try
+                {
+                    await _cdcReaderClient.StoreCdcOffsetAsync(executionId, tableName, offset);
+                    stored = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Table {tableName} - Could not store offset. {ex}");
+                    await WaitForSeconds(token, 10);
                 }
             }
         }
@@ -181,6 +248,17 @@ namespace CdcTools.CdcToKafka.Streaming
         private BigInteger GetBigInteger(byte[] lsn)
         {
             return new BigInteger(lsn.Reverse().ToArray());
+        }
+
+        private async Task WaitForSeconds(CancellationToken token, int seconds)
+        {
+            int waited = 0;
+
+            while (waited < seconds && !token.IsCancellationRequested)
+            {
+                await Task.Delay(1000);
+                waited++;
+            }
         }
     }
 }

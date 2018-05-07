@@ -1,4 +1,5 @@
 ﻿using CdcTools.CdcReader;
+using CdcTools.Redshift;
 using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
@@ -6,15 +7,14 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Loader;
 using System.Threading;
-using System.Threading.Tasks;
 
-namespace CdcTools.CdcToKafka.Streaming
+namespace CdcTools.CdcToRedshift
 {
     class Program
     {
         static void Main(string[] args)
         {
-            Console.Title = "CDC To Kafka Streamer";
+            Console.Title = "CDC to Redshift";
 
             // support graceful shutdown in Docker
             var ended = new ManualResetEventSlim();
@@ -37,25 +37,22 @@ namespace CdcTools.CdcToKafka.Streaming
 
             IConfigurationRoot configuration = builder.Build();
 
-            // get parameters and start
             var executionId = GetExecutionId(configuration);
             var isFullLoad = IsFullLoad(configuration);
             var tables = GetTables(configuration);
             var interval = GetInterval(configuration);
-            var serializationMode = GetSerializationMode(configuration);
-            var sendWithKey = GetSendWithKey(configuration);
             var batchSize = GetBatchSize(configuration);
             var printMod = GetPrintMod(configuration);
-            var kafkaBootstrapServers = GetBootstrapServers(configuration);
-            var schemaRegistryUrl = GetSchemaRegistryUrl(configuration);
             var cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"], configuration["StateManagmentConnection"]);
+            var redshiftClient = GetRedshiftClient(configuration);
+
             var cts = new CancellationTokenSource();
 
-            if(isFullLoad)
+            if (isFullLoad)
             {
-                var fullLoadStreamer = new FullLoadStreamer(configuration, cdcReaderClient);
-                fullLoadStreamer.StreamTablesAsync(cts.Token, executionId, tables, serializationMode, sendWithKey, batchSize, printMod).Wait();
-                Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
+                var fullLoadExporter = new FullLoadExporter(cdcReaderClient, redshiftClient);
+                fullLoadExporter.ExportTablesAsync(cts.Token, executionId, tables, batchSize, printMod).Wait();
+                Console.WriteLine("Export started.");
 
                 // wait for shutdown signal
 #if DEBUG
@@ -67,23 +64,14 @@ namespace CdcTools.CdcToKafka.Streaming
 
                 Console.WriteLine("Received signal gracefully shutting down");
                 cts.Cancel();
-                fullLoadStreamer.WaitForCompletion();
+                fullLoadExporter.WaitForCompletion();
                 ended.Set();
             }
             else
             {
-                var cdcRequest = new CdcRequest()
-                {
-                    BatchSize = batchSize,
-                    ExecutionId = executionId,
-                    Interval = interval,
-                    SendWithKey = sendWithKey,
-                    SerializationMode = serializationMode,
-                    Tables = tables
-                };
-                var cdcStreamer = new ChangeStreamer(configuration, cdcReaderClient);
-                cdcStreamer.StartReading(cts.Token, cdcRequest);
-                Console.WriteLine("Streaming to Kafka started.");
+                var cdcExporter = new ChangeExporter(cdcReaderClient, redshiftClient);
+                cdcExporter.StartExportingChangesAsync(cts.Token, executionId, tables, interval, batchSize).Wait();
+                Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");
 
                 // wait for shutdown signal
 #if DEBUG
@@ -95,9 +83,10 @@ namespace CdcTools.CdcToKafka.Streaming
 
                 Console.WriteLine("Received signal gracefully shutting down");
                 cts.Cancel();
-                cdcStreamer.WaitForCompletion();
+                cdcExporter.WaitForCompletion();
                 ended.Set();
             }
+
         }
 
         private static string GetExecutionId(IConfiguration configuration)
@@ -139,19 +128,9 @@ namespace CdcTools.CdcToKafka.Streaming
             return TimeSpan.FromMilliseconds(int.Parse(configuration["IntervalMs"]));
         }
 
-        private static SerializationMode GetSerializationMode(IConfiguration configuration)
-        {
-            return (SerializationMode)Enum.Parse(typeof(SerializationMode), configuration["SerializationMode"]);
-        }
-
         private static int GetBatchSize(IConfiguration configuration)
         {
             return int.Parse(configuration["BatchSize"]);
-        }
-
-        private static bool GetSendWithKey(IConfiguration configuration)
-        {
-            return bool.Parse(configuration["SendWithKey"]);
         }
 
         private static int GetPrintMod(IConfiguration configuration)
@@ -159,14 +138,21 @@ namespace CdcTools.CdcToKafka.Streaming
             return int.Parse(configuration["PrintPercentProgressMod"]);
         }
 
-        private static string GetBootstrapServers(IConfiguration configuration)
+        private static RedshiftClient GetRedshiftClient(IConfiguration configuration)
         {
-            return configuration["KafkaBootstrapServers"];
-        }
-
-        private static string GetSchemaRegistryUrl(IConfiguration configuration)
-        {
-            return configuration["KafkaSchemaRegistryUrl"];
+            return new RedshiftClient(new RedshiftConfiguration()
+            {
+                AccessKey = configuration["AccessKey"],
+                SecretAccessKey = configuration["SecretAccessKey"],
+                Region = configuration["AwsRegion"],
+                Port = configuration["RedshiftPort"],
+                Server = configuration["RedshiftServer"],
+                MasterUsername = configuration["RedshiftUser"],
+                MasterUserPassword = configuration["RedshiftPassword"],
+                DBName = configuration["RedshiftDbName"],
+                IamRole = configuration["RedshiftRole"],
+                S3BucketName = configuration["S3BucketName"]
+            });
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using CdcTools.CdcReader.Changes;
+using CdcTools.CdcReader.State;
 using CdcTools.CdcReader.Tables;
 using System;
 using System.Collections.Generic;
@@ -11,11 +12,14 @@ namespace CdcTools.CdcReader
         private ICdcRepository _cdcRepository;
         private ITableSchemaRepository _tableSchemaRepository;
         private IFullLoadRepository _fullLoadRepository;
+        private IStateManager _stateManager;
 
         public CdcReaderClient(string connectionString,
+            string stateManagementConnectionString,
             ICdcRepository cdcRepository=null,
             ITableSchemaRepository tableSchemaRepository=null,
-            IFullLoadRepository fullLoadRepository=null)
+            IFullLoadRepository fullLoadRepository=null,
+            IStateManager stateManager=null)
         {
             if (cdcRepository == null)
                 _cdcRepository = new CdcRepository(connectionString);
@@ -31,6 +35,11 @@ namespace CdcTools.CdcReader
                 _fullLoadRepository = new FullLoadRepository(connectionString);
             else
                 _fullLoadRepository = fullLoadRepository;
+
+            if (stateManager == null)
+                _stateManager = new StateManager(stateManagementConnectionString);
+            else
+                _stateManager = stateManager;
         }
 
         public async Task<byte[]> GetMinValidLsnAsync(string tableName)
@@ -71,6 +80,26 @@ namespace CdcTools.CdcReader
         public async Task<long> GetRowCountAsync(TableSchema tableSchema)
         {
             return await _fullLoadRepository.GetRowCountAsync(tableSchema);
+        }
+
+        public async Task<StateResult<Offset>> GetLastCdcOffsetAsync(string executionId, string tableName)
+        {
+            return await _stateManager.GetLastCdcOffsetAsync(executionId, tableName);
+        }
+
+        public async Task StoreCdcOffsetAsync(string executionId, string tableName, Offset offset)
+        {
+            await _stateManager.StoreCdcOffsetAsync(executionId, tableName, offset);
+        }
+
+        public async Task<StateResult<PrimaryKeyValue>> GetLastFullLoadOffsetAsync(string executionId, string tableName)
+        {
+            return await _stateManager.GetLastPkOffsetAsync(executionId, tableName);
+        }
+
+        public async Task StoreFullLoadOffsetAsync(string executionId, string tableName, PrimaryKeyValue pkValue)
+        {
+            await _stateManager.StorePkOffsetAsync(executionId, tableName, pkValue);
         }
     }
 }
