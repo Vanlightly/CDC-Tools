@@ -40,9 +40,7 @@ namespace CdcTools.CdcToRedshift
             var executionId = GetExecutionId(configuration);
             var isFullLoad = IsFullLoad(configuration);
             var tables = GetTables(configuration);
-            var interval = GetInterval(configuration);
             var batchSize = GetBatchSize(configuration);
-            var printMod = GetPrintMod(configuration);
             var cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"], configuration["StateManagmentConnection"]);
             var redshiftClient = GetRedshiftClient(configuration);
 
@@ -50,6 +48,7 @@ namespace CdcTools.CdcToRedshift
 
             if (isFullLoad)
             {
+                var printMod = GetPrintMod(configuration);
                 var fullLoadExporter = new FullLoadExporter(cdcReaderClient, redshiftClient);
                 fullLoadExporter.ExportTablesAsync(cts.Token, executionId, tables, batchSize, printMod).Wait();
                 Console.WriteLine("Export started.");
@@ -88,6 +87,7 @@ namespace CdcTools.CdcToRedshift
             }
             else
             {
+                var interval = GetInterval(configuration);
                 var cdcExporter = new ChangeExporter(cdcReaderClient, redshiftClient);
                 cdcExporter.StartExportingChangesAsync(cts.Token, executionId, tables, interval, batchSize).Wait();
                 Console.WriteLine("Streaming to Kafka in progress. Press X to shutdown");

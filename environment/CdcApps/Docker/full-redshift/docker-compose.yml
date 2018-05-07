@@ -1,0 +1,27 @@
+version: "2"
+
+services:
+  FullLoadToRedshift:
+    image: "jackvanlightly/cdctools.cdc-to-redshift:latest"
+    container_name: cdctools.cdc-to-redshift
+    environment:
+      CDCTOOLS_ExecutionId: my-one-off-full-load
+      CDCTOOLS_Tables: Person,PersonAddress
+      CDCTOOLS_Mode: full-load
+      CDCTOOLS_PrintPercentProgressMod: 5
+      CDCTOOLS_BatchSize: 1000
+      CDCTOOLS_DatabaseConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
+      CDCTOOLS_StateManagmentConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
+      CDCTOOLS_AccessKey: your-access-key-here
+      CDCTOOLS_SecretAccessKey: your-secret-access-key-here
+      CDCTOOLS_RedshiftUser: your-redshift-user-name-here
+      CDCTOOLS_RedshiftPassword: your-redshift-user-password-here
+      CDCTOOLS_RedshiftRole: your-redshift-role-arn-here
+      CDCTOOLS_AwsRegion: your-region-hereeg->eu-west-1
+      CDCTOOLS_RedshiftServer: your-redshift-cluster-server
+      CDCTOOLS_RedshiftPort: 5439
+      CDCTOOLS_RedshiftDbName: dev
+      CDCTOOLS_S3BucketName: my-s3-bucket-here
+    logging:
+      options:
+        max-size: 50m

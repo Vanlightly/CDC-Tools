@@ -98,7 +98,6 @@ namespace CdcTools.KafkaToRedshift.Consumers
             {
                   { "group.id", $"{table}-consumer-group" },
                   { "statistics.interval.ms", 60000 },
-                  { "broker.address.family", "V4" },
                   { "bootstrap.servers", _kafkaBootstrapServers },
                   { "schema.registry.url", _schemaRegistryUrl }
             };
@@ -110,14 +109,14 @@ namespace CdcTools.KafkaToRedshift.Consumers
 
             using (var consumer = new Consumer<Null, GenericRecord>(conf, null, new AvroDeserializer<GenericRecord>()))
             {
-                consumer.OnPartitionEOF += (_, end)
-                    => Console.WriteLine($"Reached end of topic {end.Topic} partition {end.Partition}, next message will be at offset {end.Offset}");
+                //consumer.OnPartitionEOF += (_, end)
+                //    => Console.WriteLine($"Reached end of topic {end.Topic} partition {end.Partition}, next message will be at offset {end.Offset}");
 
-                consumer.OnError += (_, error)
-                    => Console.WriteLine($"{topic} - Error: {error}");
+                consumer.OnError += (_, msg)
+                    => Console.WriteLine($"{topic} - Error: {msg.Reason}");
 
-                consumer.OnConsumeError += (_, error)
-                    => Console.WriteLine($"{topic} - Consume error: {error}");
+                consumer.OnConsumeError += (_, msg)
+                    => Console.WriteLine($"{topic} - Consume error: {msg.Error.Reason}");
 
                 consumer.OnPartitionsAssigned += (_, partitions) =>
                 {
@@ -131,8 +130,8 @@ namespace CdcTools.KafkaToRedshift.Consumers
                     consumer.Unassign();
                 };
 
-                consumer.OnStatistics += (_, json)
-                    => Console.WriteLine($"{topic} - Statistics: {json}");
+                //consumer.OnStatistics += (_, json)
+                //    => Console.WriteLine($"{topic} - Statistics: {json}");
 
                 Console.WriteLine($"Subscribing to topic {topic}");
                 consumer.Subscribe(topic);
@@ -156,6 +155,8 @@ namespace CdcTools.KafkaToRedshift.Consumers
                         secondsWithoutMessage++;
                         if (secondsWithoutMessage % 30 == 0)
                             Console.WriteLine($"{topic}: No messages in last {secondsWithoutMessage} seconds");
+
+                        Task.Delay(100).Wait();
                     }
 
                 }

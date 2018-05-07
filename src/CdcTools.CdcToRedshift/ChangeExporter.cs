@@ -85,13 +85,15 @@ namespace CdcTools.CdcToRedshift
             {
                 cdcState.ToLsn = await _cdcReaderClient.GetMaxLsnAsync();
                 sw.Start();
-                Console.WriteLine($"{tableName} batch from LSN {GetBigInteger(cdcState.FromLsn)} to {GetBigInteger(cdcState.ToLsn)}");
+                Console.WriteLine($"Table {tableName} - Starting to export LSN range {GetBigInteger(cdcState.FromLsn)} to {GetBigInteger(cdcState.ToLsn)}");
 
+                int blockCounter = 0;
                 bool more = true;
                 while (!token.IsCancellationRequested && more)
                 {
                     if (GetBigInteger(cdcState.FromLsn) <= GetBigInteger(cdcState.ToLsn))
                     {
+                        blockCounter++;
                         ChangeBatch batch = null;
                         if (cdcState.UnfinishedLsn)
                             batch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, cdcState.FromLsn, cdcState.FromSeqVal, cdcState.ToLsn, batchSize);
@@ -100,7 +102,7 @@ namespace CdcTools.CdcToRedshift
 
                         if (batch.Changes.Any())
                         {
-                            Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} Retrieved {batch.Changes.Count} changes for publishing");
+                            Console.WriteLine($"Table {tableName} - Retrieved block #{blockCounter} with {batch.Changes.Count} changes");
                             await BlockingWriteToRedshiftAsync(token, tableSchema.TableName, batch);
 
                             cdcState.FromLsn = batch.Changes.Last().Lsn;
@@ -120,14 +122,14 @@ namespace CdcTools.CdcToRedshift
                         {
                             more = false;
                             cdcState.UnfinishedLsn = false;
-                            Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} No changes");
+                            Console.WriteLine($"Table {tableName} - No changes");
                         }
                     }
                     else
                     {
                         more = false;
                         cdcState.UnfinishedLsn = false;
-                        Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} No changes");
+                        Console.WriteLine($"Table {tableName} - No changes");
                     }
                 }
 

@@ -1,0 +1,26 @@
+version: "2"
+
+services:
+  FullLoadToKafka:
+    image: "jackvanlightly/cdctools.cdc-to-kafka-streaming:latest"
+    container_name: cdctools.cdc-to-kafka-streaming
+    environment:
+      CDCTOOLS_IntervalMs: 5000
+      CDCTOOLS_TableTopicPrefix: cdc-table-
+      CDCTOOLS_Tables: Person,PersonAddress
+      CDCTOOLS_Mode: full-load
+      CDCTOOLS_SerializationMode: Json
+      CDCTOOLS_SendWithKey: 'false'
+      CDCTOOLS_PrintPercentProgressMod: 5
+      CDCTOOLS_BatchSize: 1000
+      CDCTOOLS_DatabaseConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
+      CDCTOOLS_StateManagmentConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
+      CDCTOOLS_KafkaBootstrapServers: kafkaserver:9092
+      CDCTOOLS_KafkaSchemaRegistryUrl: http://schema-registry:8081
+    logging:
+      options:
+        max-size: 50m
+networks:
+  default:
+    external:
+      name: kafka-shared-net

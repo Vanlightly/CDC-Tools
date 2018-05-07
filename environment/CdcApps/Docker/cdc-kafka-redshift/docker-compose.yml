@@ -1,0 +1,50 @@
+version: "2"
+
+services:
+  CdcToKafka:
+    image: "jackvanlightly/cdctools.cdc-to-kafka-streaming:latest"
+    container_name: cdctools.cdc-to-kafka-streaming
+    environment:
+      CDCTOOLS_IntervalMs: 30000
+      CDCTOOLS_TableTopicPrefix: cdc-table-
+      CDCTOOLS_Tables: Person,PersonAddress
+      CDCTOOLS_Mode: cdc
+      CDCTOOLS_SerializationMode: Avro
+      CDCTOOLS_SendWithKey: 'false'
+      CDCTOOLS_BatchSize: 1000
+      CDCTOOLS_DatabaseConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
+      CDCTOOLS_StateManagmentConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
+      CDCTOOLS_KafkaBootstrapServers: kafkaserver:9092
+      CDCTOOLS_KafkaSchemaRegistryUrl: http://schema-registry:8081
+    logging:
+      options:
+        max-size: 50m
+  KafkaToRedshift:
+    image: "jackvanlightly/cdctools.kafka-to-redshift:latest"
+    container_name: cdctools.kafka-to-redshift
+    environment:
+      CDCTOOLS_AccessKey: your-access-key-here
+      CDCTOOLS_SecretAccessKey: your-secret-access-key-here
+      CDCTOOLS_RedshiftUser: your-redshift-user-name-here
+      CDCTOOLS_RedshiftPassword: your-redshift-user-password-here
+      CDCTOOLS_RedshiftRole: your-redshift-role-arn-here
+      CDCTOOLS_AwsRegion: your-region-hereeg->eu-west-1
+      CDCTOOLS_RedshiftServer: your-redshift-cluster-server
+      CDCTOOLS_RedshiftPort: 5439
+      CDCTOOLS_RedshiftDbName: dev
+      CDCTOOLS_S3BucketName: my-s3-bucket-here
+      CDCTOOLS_WindowMs: 30000
+      CDCTOOLS_WindowItems: 5000
+      CDCTOOLS_TableTopicPrefix: cdc-table-
+      CDCTOOLS_Tables: Person,PersonAddress
+      CDCTOOLS_SerializationMode: Avro
+      CDCTOOLS_MessagesHaveKey: 'false'
+      CDCTOOLS_KafkaBootstrapServers: kafkaserver:9092
+      CDCTOOLS_KafkaSchemaRegistryUrl: http://schema-registry:8081
+    logging:
+      options:
+        max-size: 50m
+networks:
+  default:
+    external:
+      name: kafka-shared-net

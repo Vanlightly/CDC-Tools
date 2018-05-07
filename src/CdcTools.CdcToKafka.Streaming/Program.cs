@@ -41,11 +41,9 @@ namespace CdcTools.CdcToKafka.Streaming
             var executionId = GetExecutionId(configuration);
             var isFullLoad = IsFullLoad(configuration);
             var tables = GetTables(configuration);
-            var interval = GetInterval(configuration);
             var serializationMode = GetSerializationMode(configuration);
             var sendWithKey = GetSendWithKey(configuration);
             var batchSize = GetBatchSize(configuration);
-            var printMod = GetPrintMod(configuration);
             var kafkaBootstrapServers = GetBootstrapServers(configuration);
             var schemaRegistryUrl = GetSchemaRegistryUrl(configuration);
             var cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"], configuration["StateManagmentConnection"]);
@@ -53,6 +51,7 @@ namespace CdcTools.CdcToKafka.Streaming
 
             if(isFullLoad)
             {
+                var printMod = GetPrintMod(configuration);
                 var fullLoadStreamer = new FullLoadStreamer(configuration, cdcReaderClient);
                 fullLoadStreamer.StreamTablesAsync(cts.Token, executionId, tables, serializationMode, sendWithKey, batchSize, printMod).Wait();
                 Console.WriteLine("Streaming to Kafka in progress.");
@@ -91,6 +90,8 @@ namespace CdcTools.CdcToKafka.Streaming
             }
             else
             {
+                var interval = GetInterval(configuration);
+
                 var cdcRequest = new CdcRequest()
                 {
                     BatchSize = batchSize,

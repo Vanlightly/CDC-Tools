@@ -88,13 +88,15 @@ namespace CdcTools.CdcToKafka.Streaming
                 {
                     cdcState.ToLsn = await _cdcReaderClient.GetMaxLsnAsync();
                     sw.Start();
-                    Console.WriteLine($"{tableName} batch from LSN {GetBigInteger(cdcState.FromLsn)} to {GetBigInteger(cdcState.ToLsn)}");
+                    Console.WriteLine($"Table {tableName} - Starting to export LSN range {GetBigInteger(cdcState.FromLsn)} to {GetBigInteger(cdcState.ToLsn)}");
 
                     bool more = true;
+                    int blockCounter = 0;
                     while (!token.IsCancellationRequested && more)
                     {
                         if (GetBigInteger(cdcState.FromLsn) <= GetBigInteger(cdcState.ToLsn))
                         {
+                            blockCounter++;
                             ChangeBatch batch = null;
                             if (cdcState.UnfinishedLsn)
                                 batch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, cdcState.FromLsn, cdcState.FromSeqVal, cdcState.ToLsn, batchSize);
@@ -103,7 +105,7 @@ namespace CdcTools.CdcToKafka.Streaming
 
                             if (batch.Changes.Any())
                             {
-                                Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} Retrieved {batch.Changes.Count} changes for publishing");
+                                Console.WriteLine($"Table {tableName} - Retrieved block #{blockCounter} with {batch.Changes.Count} changes");
                                 foreach (var change in batch.Changes)
                                 {
                                     await producer.SendAsync(token, change);
@@ -127,14 +129,14 @@ namespace CdcTools.CdcToKafka.Streaming
                             {
                                 more = false;
                                 cdcState.UnfinishedLsn = false;
-                                Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} No changes");
+                                Console.WriteLine($"Table {tableName} - No changes");
                             }
                         }
                         else
                         {
                             more = false;
                             cdcState.UnfinishedLsn = false;
-                            Console.WriteLine($"{DateTime.Now.ToString("HH:mm:ss")} No changes");
+                            Console.WriteLine($"Table {tableName} - No changes");
                         }
                     }
 
@@ -154,7 +156,7 @@ namespace CdcTools.CdcToKafka.Streaming
             var existingOffset = await _cdcReaderClient.GetLastCdcOffsetAsync(executionId, tableSchema.TableName);
             if (existingOffset.Result == Result.NoStoredState)
             {
-                Console.WriteLine($"Table {tableSchema.TableName} - No previous stored offset. Starting from first change");
+                Console.WriteLine($"Table {tableSchema.TableName} - No previous stored LSN. Starting from first change");
                 var initialFromLsn = await _cdcReaderClient.GetMinValidLsnAsync(tableSchema.TableName);
 
                 var hasFirstChange = false;
@@ -188,7 +190,7 @@ namespace CdcTools.CdcToKafka.Streaming
             }
             else
             {
-                Console.WriteLine($"Table {tableSchema.TableName} - Starting from stored offset");
+                Console.WriteLine($"Table {tableSchema.TableName} - Starting from stored LSN");
 
                 return new CdcState()
                 {
@@ -223,7 +225,7 @@ namespace CdcTools.CdcToKafka.Streaming
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Table {tableName} - Could not store offset. {ex}");
+                    Console.WriteLine($"Table {tableName} - Could not store LSN. {ex}");
                     await WaitForSeconds(token, 10);
                 }
             }
