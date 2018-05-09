@@ -21,8 +21,7 @@ FROM INFORMATION_SCHEMA.COLUMNS";
         public static string GetColumnsOfTableQuery()
         {
             return GetColumnsQuery 
-                + Environment.NewLine + "WHERE TABLE_NAME = @TableName"
-                + Environment.NewLine + "AND TABLE_SCHEMA = @SchemaName";
+                + Environment.NewLine + "WHERE TABLE_NAME = @TableName";
         }
 
         public const string GetPrimaryKeysQuery = @"SELECT OBJECT_NAME(IC.OBJECT_ID) As TableName

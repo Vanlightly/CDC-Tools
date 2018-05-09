@@ -62,9 +62,9 @@ namespace CdcTools.CdcReader
             return await _cdcRepository.GetChangeBatchAsync(tableSchema, fromLsn, toLsn, batchSize);
         }
 
-        public async Task<TableSchema> GetTableSchemaAsync(string schemaName, string tableName)
+        public async Task<TableSchema> GetTableSchemaAsync(string tableName)
         {
-            return await _tableSchemaRepository.GetTableSchemaAsync(schemaName, tableName);
+            return await _tableSchemaRepository.GetTableSchemaAsync(tableName);
         }
 
         public async Task<FullLoadBatch> GetFirstBatchAsync(TableSchema tableSchema, int batchSize)

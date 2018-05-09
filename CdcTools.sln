@@ -15,9 +15,11 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.Redshift", "src\Cd
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.KafkaToRedshift", "src\CdcTools.KafkaToRedshift\CdcTools.KafkaToRedshift.csproj", "{EC28C6BC-FD6A-4CC3-A98D-3B1633AC2D8C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CdcTools.CdcToRedshift", "src\CdcTools.CdcToRedshift\CdcTools.CdcToRedshift.csproj", "{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CdcTools.CdcToRedshift", "src\CdcTools.CdcToRedshift\CdcTools.CdcToRedshift.csproj", "{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Services", "Services", "{0CF12805-C062-441B-8F46-A319085F69CF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CdcTools.CdcReader.Transactional", "src\CdcTools.CdcReader.Transactional\CdcTools.CdcReader.Transactional.csproj", "{B3C7C82D-5E40-41F4-846E-5C1C5874D557}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -49,6 +51,10 @@ Global
 		{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3C7C82D-5E40-41F4-846E-5C1C5874D557}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3C7C82D-5E40-41F4-846E-5C1C5874D557}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3C7C82D-5E40-41F4-846E-5C1C5874D557}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3C7C82D-5E40-41F4-846E-5C1C5874D557}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -60,6 +66,7 @@ Global
 		{71C46BB8-5078-4369-83BF-7B70BAE564EA} = {40662B41-C13C-4E3B-9316-E6F943F25104}
 		{EC28C6BC-FD6A-4CC3-A98D-3B1633AC2D8C} = {0CF12805-C062-441B-8F46-A319085F69CF}
 		{0A5DCA98-B7D3-471A-AEF8-F51CF1E04E71} = {0CF12805-C062-441B-8F46-A319085F69CF}
+		{B3C7C82D-5E40-41F4-846E-5C1C5874D557} = {40662B41-C13C-4E3B-9316-E6F943F25104}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {ABE5C26C-2EA9-4826-87FB-02D217DD8B46}

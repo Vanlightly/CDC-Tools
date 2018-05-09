@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CdcTools.CdcReader.Transactional\CdcTools.CdcReader.Transactional.csproj" />
     <ProjectReference Include="..\CdcTools.CdcReader\CdcTools.CdcReader.csproj" />
     <ProjectReference Include="..\CdcTools.Redshift\CdcTools.Redshift.csproj" />
   </ItemGroup>

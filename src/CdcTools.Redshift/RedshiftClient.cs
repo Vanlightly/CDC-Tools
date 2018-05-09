@@ -15,6 +15,9 @@ namespace CdcTools.Redshift
         private IRedshiftDao _redshiftDao;
         private IS3Uploader _s3Uploader;
 
+        private Dictionary<string, List<S3TableDocuments>> _cachedMultiPartDocumentPaths;
+        private object _cacheSyncRoot = new object();
+
         public RedshiftClient(RedshiftConfiguration configuration,
             IRedshiftDao redshiftDao = null,
             IS3Uploader s3Uploader = null)
@@ -30,6 +33,8 @@ namespace CdcTools.Redshift
                 _s3Uploader = new S3Uploader(configuration.S3BucketName);
             else
                 _s3Uploader = s3Uploader;
+
+            _cachedMultiPartDocumentPaths = new Dictionary<string, List<S3TableDocuments>>();
         }
 
         public async Task CacheTableColumnsAsync(List<string> tableNames)
@@ -42,6 +47,46 @@ namespace CdcTools.Redshift
             tableName = tableName.ToLower();
             var s3TableDocs = await LoadToS3Async(tableName, rowChanges);
             await _redshiftDao.PerformCsvMergeAsync(s3TableDocs);
+        }
+
+        public async Task UploadAsCsvAsync(Dictionary<string, List<RowChange>> tableRowChanges)
+        {
+            var s3TableDocsList = new List<S3TableDocuments>();
+            foreach (var kv in tableRowChanges)
+            {
+                var s3TableDocs = await LoadToS3Async(kv.Key.ToLower(), kv.Value);
+                s3TableDocsList.AddRange(s3TableDocs);
+            }
+            await _redshiftDao.PerformCsvMergeAsync(s3TableDocsList);
+        }
+
+        public async Task StorePartAsCsvAsync(string multiPartTag, string tableName, int part, List<RowChange> rowChanges)
+        {
+            lock (_cacheSyncRoot)
+            {
+                if (_cachedMultiPartDocumentPaths.ContainsKey(multiPartTag))
+                    _cachedMultiPartDocumentPaths.Add(multiPartTag, new List<S3TableDocuments>());
+            }
+
+            tableName = tableName.ToLower();
+            var s3TableDocs = await LoadToS3Async(tableName, rowChanges);
+
+            lock (_cacheSyncRoot)
+            {
+                _cachedMultiPartDocumentPaths[multiPartTag].AddRange(s3TableDocs);
+            }
+        }
+
+        public async Task CommitMultiplePartsAsync(string multiPartTag)
+        {
+            List<S3TableDocuments> s3TableDocs = null;
+            if (_cachedMultiPartDocumentPaths.TryGetValue(multiPartTag, out s3TableDocs))
+            {
+                await _redshiftDao.PerformCsvMergeAsync(s3TableDocs);
+                _cachedMultiPartDocumentPaths.Remove(multiPartTag);
+            }
+            else
+                throw new InvalidOperationException($"No multi-part tag exists that matches {multiPartTag}");
         }
 
         private async Task<List<S3TableDocuments>> LoadToS3Async(string tableName, List<RowChange> changesToPut)

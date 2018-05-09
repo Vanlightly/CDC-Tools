@@ -47,6 +47,35 @@ namespace CdcTools.Redshift.S3
             return s3Path;
         }
 
+        public async Task<string> PutS3UpsertPartAsync(AmazonS3Client s3Client, string table, List<RowChange> changeRecords, List<string> orderedCols, int part)
+        {
+            var changesToPut = GetValidChanges(changeRecords, ChangeType.INSERT, ChangeType.UPDATE_AFTER);
+            if (!changesToPut.Any())
+                return "";
+
+            var document = BuildDocument(changesToPut, orderedCols);
+            var s3Path = await PerformRequestAsync(s3Client, table, "upsert", document, changesToPut, "_Part" + part.ToString().PadLeft(5, '0'));
+
+            Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes");
+
+            return s3Path;
+        }
+
+        public async Task<string> PutS3DeletePartAsync(AmazonS3Client s3Client, string table, List<RowChange> changeRecords, List<string> orderedCols, int part)
+        {
+            // where the last change to happen for a given record was a delete
+            var changesToPut = GetValidChanges(changeRecords, ChangeType.DELETE);
+            if (!changesToPut.Any())
+                return "";
+
+            var document = BuildDocument(changesToPut, orderedCols);
+            var s3Path = await PerformRequestAsync(s3Client, table, "delete", document, changesToPut, "_Part" + part.ToString().PadLeft(5, '0'));
+
+            Console.WriteLine($"Uploaded delete to {s3Path} with {changesToPut.Count()} changes");
+
+            return s3Path;
+        }
+
         private string BuildDocument(List<RowChange> changesToPut, List<string> orderedCols)
         {
             int count = changesToPut.Count;
@@ -106,13 +135,13 @@ namespace CdcTools.Redshift.S3
             return changesToPut;
         }
 
-        private async Task<string> PerformRequestAsync(AmazonS3Client s3Client, string table, string changeType, string document, List<RowChange> changesToPut)
+        private async Task<string> PerformRequestAsync(AmazonS3Client s3Client, string table, string changeType, string document, List<RowChange> changesToPut, string suffix="")
         {
             var request = new PutObjectRequest()
             {
                 BucketName = _bucketName,
                 ContentBody = document,
-                Key = $"{table}/{changeType}/{changesToPut.Min(x => x.Lsn).ToString()}",
+                Key = $"{table}/{changeType}/{changesToPut.Min(x => x.Lsn).ToString()}{suffix}",
                 ContentType = "text/plain"
             };
             var response = await s3Client.PutObjectAsync(request);

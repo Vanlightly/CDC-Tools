@@ -1,4 +1,4 @@
-﻿namespace CdcTools.CdcToRedshift
+﻿namespace CdcTools.CdcToRedshift.NonTransactional
 {
     public class CdcState
     {

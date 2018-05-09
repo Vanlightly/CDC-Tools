@@ -14,7 +14,7 @@ using CdcTools.Redshift.Changes;
 using CdcTools.CdcReader.State;
 using CdcTools.CdcReader.Tables;
 
-namespace CdcTools.CdcToRedshift
+namespace CdcTools.CdcToRedshift.NonTransactional
 {
     public class ChangeExporter
     {
@@ -35,11 +35,8 @@ namespace CdcTools.CdcToRedshift
         {
             await _redshiftClient.CacheTableColumnsAsync(tables);
 
-            foreach (var table in tables)
+            foreach (var tableName in tables)
             {
-                var schemaName = table.Contains(".") ? table.Substring(0, table.IndexOf(".")) : "dbo";
-                var tableName = table.Contains(".") ? table.Substring(table.IndexOf(".") + 1) : table;
-
                 var readerTask = Task.Run(async () =>
                 {
                     while (!token.IsCancellationRequested)
@@ -48,7 +45,6 @@ namespace CdcTools.CdcToRedshift
                         {
                             await StartPublishingChanges(token,
                                 executionId,
-                                schemaName,
                                 tableName,
                                 interval,
                                 batchSize);
@@ -71,12 +67,11 @@ namespace CdcTools.CdcToRedshift
 
         private async Task StartPublishingChanges(CancellationToken token,
             string executionId,
-            string schemaName,
             string tableName,
             TimeSpan maxInterval,
             int batchSize)
         {
-            var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(schemaName, tableName);
+            var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(tableName);
             var cdcState = await SetInitialStateAsync(token, executionId, tableSchema, maxInterval);
 
             var sw = new Stopwatch();

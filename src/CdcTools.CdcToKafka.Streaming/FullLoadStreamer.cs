@@ -38,12 +38,9 @@ namespace CdcTools.CdcToKafka.Streaming
             int batchSize, 
             int printMod)
         {
-            foreach (var table in tables)
+            foreach (var tableName in tables)
             {
-                var schemaName = table.Contains(".") ? table.Substring(0, table.IndexOf(".")) : "dbo";
-                var tableName = table.Contains(".") ? table.Substring(table.IndexOf(".") + 1) : table;
-
-                var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(schemaName, tableName);
+                var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(tableName);
                 _loadTasks.Add(Task.Run(async () =>
                 {
                     try

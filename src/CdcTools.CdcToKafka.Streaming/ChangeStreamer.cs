@@ -35,18 +35,14 @@ namespace CdcTools.CdcToKafka.Streaming
 
         public void StartReading(CancellationToken token, CdcRequest cdcRequest)
         {
-            foreach (var table in cdcRequest.Tables)
+            foreach (var tableName in cdcRequest.Tables)
             {
-                var schemaName = table.Contains(".") ? table.Substring(0, table.IndexOf(".")) : "dbo";
-                var tableName = table.Contains(".") ? table.Substring(table.IndexOf(".") + 1) : table;
-
                 var readerTask = Task.Run(async () =>
                 {
                     try
                     {
                         await StartPublishingChanges(token,
                             cdcRequest.ExecutionId,
-                            schemaName,
                             tableName,
                             cdcRequest.Interval,
                             cdcRequest.BatchSize,
@@ -69,7 +65,6 @@ namespace CdcTools.CdcToKafka.Streaming
 
         private async Task StartPublishingChanges(CancellationToken token, 
             string executionId,
-            string schemaName, 
             string tableName, 
             TimeSpan maxInterval, 
             int batchSize, 
@@ -77,7 +72,7 @@ namespace CdcTools.CdcToKafka.Streaming
             SerializationMode serializationMode)
         {
             var tableTopic = _tableTopicPrefix + tableName.ToLower();
-            var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(schemaName, tableName);
+            var tableSchema = await _cdcReaderClient.GetTableSchemaAsync(tableName);
                         
             using (var producer = ProducerFactory.GetProducer(tableTopic, tableSchema, serializationMode, sendWithKey, _kafkaBootstrapServers, _schemaRegistryUrl))
             {

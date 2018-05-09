@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace CdcTools.CdcReader.Tables
 {
-    internal class TableSchemaRepository : ITableSchemaRepository
+    public class TableSchemaRepository : ITableSchemaRepository
     {
         private string _connString;
 
@@ -17,9 +17,9 @@ namespace CdcTools.CdcReader.Tables
             _connString = connectionString;
         }
 
-        public async Task<TableSchema> GetTableSchemaAsync(string schemaName, string tableName)
+        public async Task<TableSchema> GetTableSchemaAsync(string tableName)
         {
-            var columns = await GetTableColumnsAsync(schemaName, tableName);
+            var columns = await GetTableColumnsAsync(tableName);
             var primaryKeys = await GetTablePrimaryKeysAsync(tableName);
 
             var table = columns.GroupBy(x => new { x.Schema, x.TableName }).First();
@@ -44,7 +44,7 @@ namespace CdcTools.CdcReader.Tables
             return tableSchema;
         }
 
-        private async Task<List<TableColumn>> GetTableColumnsAsync(string schemaName, string tableName)
+        private async Task<List<TableColumn>> GetTableColumnsAsync(string tableName)
         {
             var columns = new List<TableColumn>();
 
@@ -55,7 +55,6 @@ namespace CdcTools.CdcReader.Tables
                     command.CommandText = TableSchemaQueryBuilder.GetColumnsOfTableQuery();
                     command.CommandTimeout = 30;
                     command.Parameters.Add("TableName", SqlDbType.VarChar).Value = tableName;
-                    command.Parameters.Add("SchemaName", SqlDbType.VarChar).Value = schemaName;
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {

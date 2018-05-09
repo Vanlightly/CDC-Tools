@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace CdcTools.CdcReader.Tables
 {
-    internal class CdcRepository : ICdcRepository
+    public class CdcRepository : ICdcRepository
     {
         private string _connString;
         private byte[] _noCdcDataLsn = new byte[10];
