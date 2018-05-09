@@ -12,7 +12,7 @@ services:
       CDCTOOLS_SerializationMode: Json
       CDCTOOLS_SendWithKey: 'false'
       CDCTOOLS_PrintPercentProgressMod: 5
-      CDCTOOLS_BatchSize: 1000
+      CDCTOOLS_NonTransactionalTableBatchSize: 1000
       CDCTOOLS_DatabaseConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
       CDCTOOLS_StateManagmentConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
       CDCTOOLS_KafkaBootstrapServers: kafkaserver:9092

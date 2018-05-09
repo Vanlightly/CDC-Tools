@@ -177,6 +177,9 @@ namespace CdcTools.CdcReader.Transactional
             TransactionId transactionId = null;
             foreach (var pair in currentValues)
             {
+                if (pair.Value == null || pair.Value.LsnInt == 0)
+                    continue;
+
                 if (transactionId == null)
                     transactionId = new TransactionId(pair.Value.Lsn, pair.Value.LsnStr, pair.Value.LsnInt);
 

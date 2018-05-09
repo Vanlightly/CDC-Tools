@@ -1,15 +1,17 @@
 version: "2"
 
 services:
-  FullLoadToRedshift:
+  CdcToRedshift:
     image: "jackvanlightly/cdctools.cdc-to-redshift:latest"
     container_name: cdctools.cdc-to-redshift
     environment:
-      CDCTOOLS_ExecutionId: my-one-off-full-load
+      CDCTOOLS_IntervalMs: 30000
+      CDCTOOLS_ExecutionId: my-cdc-streaming-execution
       CDCTOOLS_Tables: Person,PersonAddress
-      CDCTOOLS_Mode: full-load
-      CDCTOOLS_PrintPercentProgressMod: 5
-      CDCTOOLS_NonTransactionalTableBatchSize: 1000
+      CDCTOOLS_Mode: cdc-tran
+      CDCTOOLS_PerTableBufferLimit: 1000
+      CDCTOOLS_TransactionBufferLimit: 100
+      CDCTOOLS_TransactionBatchSizeLimit: 100000
       CDCTOOLS_DatabaseConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
       CDCTOOLS_StateManagmentConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
       CDCTOOLS_AccessKey: your-access-key-here
@@ -17,7 +19,7 @@ services:
       CDCTOOLS_RedshiftUser: your-redshift-user-name-here
       CDCTOOLS_RedshiftPassword: your-redshift-user-password-here
       CDCTOOLS_RedshiftRole: your-redshift-role-arn-here
-      CDCTOOLS_AwsRegion: your-region-hereeg->eu-west-1
+      CDCTOOLS_AwsRegion: your-region-here
       CDCTOOLS_RedshiftServer: your-redshift-cluster-server
       CDCTOOLS_RedshiftPort: 5439
       CDCTOOLS_RedshiftDbName: dev

@@ -39,7 +39,7 @@ namespace CdcTools.CdcToKafka.Streaming
 
             // get parameters and start
             var executionId = GetExecutionId(configuration);
-            var isFullLoad = IsFullLoad(configuration);
+            var runMode = GetRunMode(configuration);
             var tables = GetTables(configuration);
             var serializationMode = GetSerializationMode(configuration);
             var sendWithKey = GetSendWithKey(configuration);
@@ -49,7 +49,7 @@ namespace CdcTools.CdcToKafka.Streaming
             var cdcReaderClient = new CdcReaderClient(configuration["DatabaseConnection"], configuration["StateManagmentConnection"]);
             var cts = new CancellationTokenSource();
 
-            if(isFullLoad)
+            if(runMode == RunMode.FullLoad)
             {
                 var printMod = GetPrintMod(configuration);
                 var fullLoadStreamer = new FullLoadStreamer(configuration, cdcReaderClient);
@@ -128,18 +128,20 @@ namespace CdcTools.CdcToKafka.Streaming
             return configuration["ExecutionId"];
         }
 
-        private static bool IsFullLoad(IConfiguration configuration)
+        private static RunMode GetRunMode(IConfiguration configuration)
         {
             var mode = configuration["Mode"];
             if (mode != null)
             {
-                if (mode.Equals("cdc"))
-                    return false;
+                if (mode.Equals("cdc-nontran"))
+                    return RunMode.NonTransactionalCdc;
+                else if (mode.Equals("cdc-tran"))
+                    throw new NotSupportedException("cdc-tran mode is not supported at ths time.");
                 else if (mode.Equals("full-load"))
-                    return true;
+                    return RunMode.FullLoad;
             }
 
-            return false;
+            return RunMode.NonTransactionalCdc;
         }
 
         private static List<string> GetTables(IConfiguration configuration)

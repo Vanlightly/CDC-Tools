@@ -8,8 +8,8 @@ services:
       CDCTOOLS_IntervalMs: 30000
       CDCTOOLS_ExecutionId: my-cdc-streaming-execution
       CDCTOOLS_Tables: Person,PersonAddress
-      CDCTOOLS_Mode: cdc
-      CDCTOOLS_BatchSize: 1000
+      CDCTOOLS_Mode: cdc-nontran
+      CDCTOOLS_NonTransactionalTableBatchSize: 1000
       CDCTOOLS_DatabaseConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
       CDCTOOLS_StateManagmentConnection: Server=192.168.1.33,1433;Database=CdcToRedshift;User Id=cdc-user;Password=cdc12345;
       CDCTOOLS_AccessKey: your-access-key-here

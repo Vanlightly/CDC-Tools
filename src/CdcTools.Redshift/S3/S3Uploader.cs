@@ -27,7 +27,7 @@ namespace CdcTools.Redshift.S3
             var document = BuildDocument(changesToPut, orderedCols);
             var s3Path = await PerformRequestAsync(s3Client, table, "upsert", document, changesToPut);
 
-            Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes");
+            Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes. {changeRecords.Count - changesToPut.Count} redundant changes were omitted.");
 
             return s3Path;
         }
@@ -42,7 +42,7 @@ namespace CdcTools.Redshift.S3
             var document = BuildDocument(changesToPut, orderedCols);
             var s3Path = await PerformRequestAsync(s3Client, table, "delete", document, changesToPut);
 
-            Console.WriteLine($"Uploaded delete to {s3Path} with {changesToPut.Count()} changes");
+            Console.WriteLine($"Uploaded delete to {s3Path} with {changesToPut.Count()} changes. {changeRecords.Count - changesToPut.Count} redundant changes were omitted.");
 
             return s3Path;
         }
@@ -56,7 +56,7 @@ namespace CdcTools.Redshift.S3
             var document = BuildDocument(changesToPut, orderedCols);
             var s3Path = await PerformRequestAsync(s3Client, table, "upsert", document, changesToPut, "_Part" + part.ToString().PadLeft(5, '0'));
 
-            Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes");
+            Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes. {changeRecords.Count - changesToPut.Count} redundant changes were omitted.");
 
             return s3Path;
         }
@@ -71,7 +71,7 @@ namespace CdcTools.Redshift.S3
             var document = BuildDocument(changesToPut, orderedCols);
             var s3Path = await PerformRequestAsync(s3Client, table, "delete", document, changesToPut, "_Part" + part.ToString().PadLeft(5, '0'));
 
-            Console.WriteLine($"Uploaded delete to {s3Path} with {changesToPut.Count()} changes");
+            Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes. {changeRecords.Count - changesToPut.Count} redundant changes were omitted.");
 
             return s3Path;
         }
@@ -131,7 +131,7 @@ namespace CdcTools.Redshift.S3
                 if (changeTypes.Contains(lastChange.ChangeType))
                     changesToPut.Add(lastChange);
             }
-
+            
             return changesToPut;
         }
 
