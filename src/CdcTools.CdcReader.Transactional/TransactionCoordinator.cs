@@ -27,9 +27,13 @@ namespace CdcTools.CdcReader.Transactional
         public Dictionary<string, BlockingCollection<ChangeRecord>> StartTableReaders(CancellationToken token,
             List<TableSchema> tableSchemas,
             int batchSize,
-            byte[] lastRetrievedLsn)
+            byte[] lastProcessedLsn)
         {
             var tableChangeBuffers = new Dictionary<string, BlockingCollection<ChangeRecord>>();
+
+            // if we are given a last processed LSN, then we need to increment it by one bit to ensure that we don't reprocess it
+            if (lastProcessedLsn != null)
+                lastProcessedLsn = Increment(lastProcessedLsn);
 
             // start table CDC readers
             foreach (var tableSchema in tableSchemas)
@@ -39,13 +43,30 @@ namespace CdcTools.CdcReader.Transactional
 
                 _tableReaderTasks.Add(Task.Run(async () =>
                 {
-                    try
+                    byte[] taskLsn = null;
+                    if (lastProcessedLsn != null)
                     {
-                        await ReadTransactionsAsync(token, tableSchema, batchSize, buffer, lastRetrievedLsn);
+                        taskLsn = new byte[10];
+                        Array.Copy(lastProcessedLsn, taskLsn, 10);
                     }
-                    catch (Exception ex)
+
+                    while (!token.IsCancellationRequested)
                     {
-                        Console.WriteLine($"Table {tableSchema.TableName} - Reader failure. {ex}");
+                        try
+                        {
+                            await ReadTransactionsAsync(token, tableSchema, batchSize, buffer, taskLsn);
+                        }
+                        catch(ReaderException rex)
+                        {
+                            Console.WriteLine($"Table {tableSchema.TableName} - Reader failure. Will restart reader in 10 seconds from LSN {GetBigInteger(rex.CurrentLsn).ToString()}. Error: {rex}");
+                            await WaitForSeconds(token, 10);
+                            taskLsn = rex.CurrentLsn;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Table {tableSchema.TableName} - Reader aborted due to failure. Error: {ex}");
+                            break;
+                        }
                     }
                 }));
             }
@@ -196,7 +217,7 @@ namespace CdcTools.CdcReader.Transactional
 
             foreach(var pair in currentValues)
             {
-                if (pair.Value.LsnInt == lsn)
+                if (pair.Value != null && pair.Value.LsnInt == lsn)
                     tables.Add(pair.Key);
             }
 
@@ -217,73 +238,148 @@ namespace CdcTools.CdcReader.Transactional
             }
         }
 
-        private async Task ReadTransactionsAsync(CancellationToken token, TableSchema tableSchema, int batchSize, BlockingCollection<ChangeRecord> changes, byte[] lastRetrievedLsn)
+        private async Task ReadTransactionsAsync(CancellationToken token, TableSchema tableSchema, int batchSize, BlockingCollection<ChangeRecord> changes, byte[] lastProcessedLsn)
         {
             byte[] toLsn = await _cdcRepository.GetMaxLsnAsync();
+            byte[] fromLsn = await GetInitialFromLsnAsync(tableSchema, lastProcessedLsn);
 
-            byte[] fromLsn = null;
-            byte[] fromSeqVal = null;
-            if (lastRetrievedLsn == null)
-                fromLsn = await _cdcRepository.GetMinValidLsnAsync(tableSchema.TableName);
-            else
-                fromLsn = lastRetrievedLsn;
-
-            while (!token.IsCancellationRequested)
+            try
             {
-                bool unfinishedLsn = false;
-                bool more = true;
+                byte[] fromSeqVal = null;
+                bool waitingForChanges = false;
 
-                while (more && !token.IsCancellationRequested)
+                // outer loop sets the upper LSN range, inner loop iteratively reads up to that LSN
+                while (!token.IsCancellationRequested)
                 {
-                    if (GetBigInteger(fromLsn) <= GetBigInteger(toLsn))
+                    bool unfinishedLsn = false;
+                    bool moreOfCurrentRange = true;
+
+                    while (moreOfCurrentRange && !token.IsCancellationRequested)
                     {
-                        ChangeBatch batch = null;
-                        if (unfinishedLsn)
-                            batch = await _cdcRepository.GetChangeBatchAsync(tableSchema, fromLsn, fromSeqVal, toLsn, batchSize);
-                        else
-                            batch = await _cdcRepository.GetChangeBatchAsync(tableSchema, fromLsn, toLsn, batchSize);
-
-                        if (batch.Changes.Any())
+                        // once we've caught up with the current target LSN, we'll exit the inner loop and go get the latest upper LSN
+                        if (GetBigInteger(fromLsn) <= GetBigInteger(toLsn))
                         {
-                            //Console.WriteLine($"Table {tableName} - Retrieved block #{blockCounter} with {batch.Changes.Count} changes");
-                            var enumerator = batch.Changes.GetEnumerator();
-                            if (!enumerator.MoveNext())
-                                break;
-
-                            while (!token.IsCancellationRequested)
-                            {
-                                if (changes.TryAdd(enumerator.Current, 1000))
-                                {
-                                    if (!enumerator.MoveNext())
-                                        break;
-                                }
-                            }
-
-                            fromLsn = batch.Changes.Last().Lsn;
-                            fromSeqVal = batch.Changes.Last().SeqVal;
-                            more = batch.MoreChanges;
-                            unfinishedLsn = batch.MoreOfLastTransaction;
-
+                            ChangeBatch batch = null;
                             if (unfinishedLsn)
-                                fromSeqVal = Increment(fromSeqVal);
+                                batch = await _cdcRepository.GetChangeBatchAsync(tableSchema, fromLsn, fromSeqVal, toLsn, batchSize);
                             else
-                                fromLsn = Increment(fromLsn);
+                                batch = await _cdcRepository.GetChangeBatchAsync(tableSchema, fromLsn, toLsn, batchSize);
+
+                            if (batch.Changes.Any())
+                            {
+                                waitingForChanges = false;
+                                //Console.WriteLine($"Table {tableName} - Retrieved block #{blockCounter} with {batch.Changes.Count} changes");
+                                var enumerator = batch.Changes.GetEnumerator();
+                                if (!enumerator.MoveNext())
+                                    break;
+
+                                while (!token.IsCancellationRequested)
+                                {
+                                    if (changes.TryAdd(enumerator.Current, 1000))
+                                    {
+                                        if (!enumerator.MoveNext())
+                                            break;
+                                    }
+                                }
+
+                                fromLsn = batch.Changes.Last().Lsn;
+                                fromSeqVal = batch.Changes.Last().SeqVal;
+                                moreOfCurrentRange = batch.MoreChanges;
+                                unfinishedLsn = batch.MoreOfLastTransaction;
+
+                                if (unfinishedLsn)
+                                    fromSeqVal = Increment(fromSeqVal);
+                                else
+                                    fromLsn = Increment(fromLsn);
+                            }
+                            else
+                            {
+                                moreOfCurrentRange = false;
+                                unfinishedLsn = false;
+                                //Console.WriteLine($"Table {tableName} - No changes");
+                            }
                         }
                         else
                         {
-                            more = false;
+                            moreOfCurrentRange = false;
                             unfinishedLsn = false;
                             //Console.WriteLine($"Table {tableName} - No changes");
                         }
                     }
+
+                    var latestLsn = await _cdcRepository.GetMaxLsnAsync();
+                    if (latestLsn.SequenceEqual(toLsn))
+                    {
+                        if (!waitingForChanges)
+                        {
+                            // add a change record that signals to the Transaction Grouping Task that there are no new changes available
+                            // this is important as the Transaction Grouping Task needs to differentiate between a slow reader and no data
+                            var noDataSignalRecord = GetNoDataSignalRecord(tableSchema);
+                            changes.TryAdd(noDataSignalRecord, 5000);
+                        }
+
+                        waitingForChanges = true;
+
+                        // blocks until a new upper LSN is available
+                        // note that a new upper LSN is published every five minutes by SQL Server even when no changes have occurred
+                        toLsn = await GetLatestUpperLsnAsync(token, toLsn);
+                    }
                     else
                     {
-                        more = false;
-                        unfinishedLsn = false;
-                        //Console.WriteLine($"Table {tableName} - No changes");
+                        toLsn = latestLsn;
                     }
                 }
             }
+            catch(Exception ex)
+            {
+                throw new ReaderException("Reader failure", ex, fromLsn);
+            }
+        }
+
+        private async Task<byte[]> GetInitialFromLsnAsync(TableSchema tableSchema, byte[] lastProcessedLsn)
+        {
+            var minValidLsn = await _cdcRepository.GetMinValidLsnAsync(tableSchema.TableName);
+            byte[] fromLsn = null;
+            if (lastProcessedLsn == null)
+            {
+                fromLsn = minValidLsn;
+            }
+            else if (GetBigInteger(lastProcessedLsn) >= GetBigInteger(minValidLsn))
+            {
+                fromLsn = lastProcessedLsn;
+            }
+            else
+            {
+                fromLsn = minValidLsn;
+                Console.WriteLine($"Table {tableSchema.TableName} - WARNING: The current minimum valid LSN for this table is later than the last processed LSN provided. Some data has been missed. Check your retention policy to help avoid this in future.");
+            }
+
+            return fromLsn;
+        }
+
+        private async Task<byte[]> GetLatestUpperLsnAsync(CancellationToken token, byte[] currentUpperLsn)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                var latest = await _cdcRepository.GetMaxLsnAsync();
+                if (currentUpperLsn.SequenceEqual(latest))
+                    await WaitForSeconds(token, 5);
+                else
+                    return latest;
+            }
+
+            return currentUpperLsn;
+        }
+
+        private ChangeRecord GetNoDataSignalRecord(TableSchema tableSchema)
+        {
+            var noDataSignalRecord = new ChangeRecord();
+            noDataSignalRecord.Lsn = new byte[10];
+            noDataSignalRecord.LsnStr = "0";
+            noDataSignalRecord.SeqVal = new byte[10];
+            noDataSignalRecord.TableName = tableSchema.TableName;
+
+            return noDataSignalRecord;
         }
 
         private byte[] Increment(byte[] lsn)
@@ -305,6 +401,17 @@ namespace CdcTools.CdcReader.Transactional
         private BigInteger GetBigInteger(byte[] lsn)
         {
             return new BigInteger(lsn.Reverse().ToArray());
+        }
+
+        private async Task WaitForSeconds(CancellationToken token, int seconds)
+        {
+            int waited = 0;
+
+            while (waited < seconds && !token.IsCancellationRequested)
+            {
+                await Task.Delay(1000);
+                waited++;
+            }
         }
     }
 }

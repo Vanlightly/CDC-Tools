@@ -89,7 +89,7 @@ namespace CdcTools.CdcToRedshift.Transactional
 
                 while (sw.Elapsed <= interval && !token.IsCancellationRequested)
                 {
-                    var transactionBatch = await _cdcTransactionClient.NextAsync(token);
+                    var transactionBatch = await _cdcTransactionClient.NextAsync(token, interval);
                     if (transactionBatch != null)
                     {
                         // if we have uncommitted multi-part transactions and the latest transaction is not the uncommitted one

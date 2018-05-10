@@ -106,13 +106,13 @@ namespace CdcTools.CdcReader.Transactional
             return batch;
         }
 
-        public async Task<TransactionBatch> NextAsync(TimeSpan waitPeriod)
+        public async Task<TransactionBatch> NextAsync(CancellationToken token, TimeSpan waitPeriod)
         {
             var sw = new Stopwatch();
             sw.Start();
             TransactionBatch batch = null;
 
-            while (!_transactionBatchBuffer.TryTake(out batch) && sw.Elapsed <= waitPeriod)
+            while (!_transactionBatchBuffer.TryTake(out batch) && sw.Elapsed <= waitPeriod && !token.IsCancellationRequested)
                 await Task.Delay(100);
 
             return batch;
