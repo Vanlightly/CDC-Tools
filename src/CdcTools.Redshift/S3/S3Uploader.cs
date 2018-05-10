@@ -27,8 +27,6 @@ namespace CdcTools.Redshift.S3
             var document = BuildDocument(changesToPut, orderedCols);
             var s3Path = await PerformRequestAsync(s3Client, table, "upsert", document, changesToPut);
 
-            var c = changeRecords.Select(x => x.ChangeKey).Distinct().Count();
-
             Console.WriteLine($"Uploaded upsert to {s3Path} with {changesToPut.Count()} changes. {changeRecords.Count(x => x.ChangeType == ChangeType.INSERT || x.ChangeType == ChangeType.UPDATE_AFTER) - changesToPut.Count} redundant changes were omitted.");
 
             return s3Path;
