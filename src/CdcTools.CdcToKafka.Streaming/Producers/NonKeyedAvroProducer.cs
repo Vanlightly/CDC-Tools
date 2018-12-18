@@ -9,6 +9,7 @@ using CdcTools.CdcReader.Tables;
 using Confluent.Kafka;
 using Avro.Generic;
 using Confluent.Kafka.Serialization;
+using System.Runtime.InteropServices;
 
 namespace CdcTools.CdcToKafka.Streaming.Producers
 {
@@ -24,9 +25,11 @@ namespace CdcTools.CdcToKafka.Streaming.Producers
             _config = new Dictionary<string, object>
             {
                 { "bootstrap.servers", bootstrapServers },
-                { "schema.registry.url", schemaRegistryUrl },
-                { "socket.blocking.max.ms", "1" } // workaround for https://github.com/confluentinc/confluent-kafka-dotnet/issues/501
+                { "schema.registry.url", schemaRegistryUrl }
             };
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                _config.Add("socket.blocking.max.ms", "1"); // workaround for https://github.com/confluentinc/confluent-kafka-dotnet/issues/501
 
             _producer = new Producer<Null, GenericRecord>(_config, null, new AvroSerializer<GenericRecord>());
             _avroTypeConverter = avroTableTypeConverter;

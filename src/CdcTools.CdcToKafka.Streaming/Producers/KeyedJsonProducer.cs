@@ -7,6 +7,7 @@ using CdcTools.CdcReader.Changes;
 using Confluent.Kafka;
 using Newtonsoft.Json;
 using Confluent.Kafka.Serialization;
+using System.Runtime.InteropServices;
 
 namespace CdcTools.CdcToKafka.Streaming.Producers
 {
@@ -19,9 +20,11 @@ namespace CdcTools.CdcToKafka.Streaming.Producers
         {
             _config = new Dictionary<string, object>
             {
-                { "bootstrap.servers", bootstrapServers },
-                { "socket.blocking.max.ms", "1" } // workaround for https://github.com/confluentinc/confluent-kafka-dotnet/issues/501
+                { "bootstrap.servers", bootstrapServers }
             };
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                _config.Add("socket.blocking.max.ms", "1"); // workaround for https://github.com/confluentinc/confluent-kafka-dotnet/issues/501
 
             _producer = new Producer<string, string>(_config, new StringSerializer(Encoding.UTF8), new StringSerializer(Encoding.UTF8));
         }
