@@ -165,7 +165,7 @@ namespace CdcTools.CdcToKafka.Streaming
                     if (syncBatch.Changes.Any())
                     {
                         firstChange = syncBatch.Changes.First();
-                        await producer.SendAsync(token, firstChange);
+                        // await producer.SendAsync(token, firstChange);
                         hasFirstChange = true;
                     }
                     else {
@@ -181,8 +181,8 @@ namespace CdcTools.CdcToKafka.Streaming
                     UnfinishedLsn = syncBatch.MoreOfLastTransaction
                 };
 
-                var offset = GetOffset(cdcState);
-                await _cdcReaderClient.StoreCdcOffsetAsync(executionId, tableSchema.TableName, offset);
+                // var offset = GetOffset(cdcState);
+                // await _cdcReaderClient.StoreCdcOffsetAsync(executionId, tableSchema.TableName, offset);
 
                 return cdcState;
             }
