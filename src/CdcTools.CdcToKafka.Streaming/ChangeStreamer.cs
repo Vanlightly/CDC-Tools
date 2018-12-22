@@ -152,13 +152,15 @@ namespace CdcTools.CdcToKafka.Streaming
             if (existingOffset.Result == Result.NoStoredState)
             {
                 Console.WriteLine($"Table {tableSchema.TableName} - No previous stored LSN. Starting from first change");
-                var initialFromLsn = await _cdcReaderClient.GetMinValidLsnAsync(tableSchema.TableName);
-
+                
                 var hasFirstChange = false;
                 ChangeBatch syncBatch = null;
                 ChangeRecord firstChange = null;
                 while (!hasFirstChange && !token.IsCancellationRequested)
                 {
+                    var initialFromLsn = await _cdcReaderClient.GetMinValidLsnAsync(tableSchema.TableName);
+                    initialToLsn = await _cdcReaderClient.GetMaxLsnAsync();
+
                     syncBatch = await _cdcReaderClient.GetChangeBatchAsync(tableSchema, initialFromLsn, initialToLsn, 1);
                     if (syncBatch.Changes.Any())
                     {
@@ -166,8 +168,9 @@ namespace CdcTools.CdcToKafka.Streaming
                         await producer.SendAsync(token, firstChange);
                         hasFirstChange = true;
                     }
-                    else
+                    else {
                         await Task.Delay(maxInterval);
+                    }
                 }
 
                 var cdcState = new CdcState()
